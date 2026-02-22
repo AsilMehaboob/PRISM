@@ -1,3 +1,7 @@
+import os
+import chromadb
+from chromadb.config import Settings
+from datetime import datetime
 from typing import Dict, List
 from .models import MemoryItem
 from .crypto import verify_item
@@ -6,8 +10,14 @@ import logging
 
 class LongTermMemory:
     def __init__(self, agent_public_key):
-        self._items: Dict[str, MemoryItem] = {}
         self._agent_public_key = agent_public_key
+        db_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "chroma_data"
+        )
+        self._client = chromadb.PersistentClient(
+            path=db_path, settings=Settings(allow_reset=True)
+        )
+        self._collection = self._client.get_or_create_collection("longterm_memory")
         logging.debug("LongTermMemory initialized")
 
     def add(self, item: MemoryItem):
@@ -20,12 +30,29 @@ class LongTermMemory:
         if not verify_item(item, self._agent_public_key):
             raise ValueError("Signature verification failed")
 
-        self._items[item.id] = item
-        logging.debug(f"Added long-term item: {item}")
+        metadata = {
+            "source": item.source,
+            "tier": item.tier,
+            "created_at": item.created_at.isoformat(),
+            "trust_score": item.trust_score,
+            "signature": item.signature,
+        }
+
+        self._collection.upsert(
+            ids=[item.id], documents=[item.content], metadatas=[metadata]
+        )
+        logging.debug(f"Added long-term item: {item.id}")
 
     def get(self, memory_id: str) -> MemoryItem:
-        item = self._items[memory_id]
-        logging.debug(f"Getting long-term item: {item}")
+        logging.debug(f"Getting long-term item: {memory_id}")
+        results = self._collection.get(ids=[memory_id])
+        if not results or not results.get("ids"):
+            raise KeyError(f"Memory item {memory_id} not found")
+
+        metadata = results["metadatas"][0]
+        content = results["documents"][0]
+        item = MemoryItem.from_dict(metadata, memory_id, content)
+
         if not verify_item(item, self._agent_public_key):
             raise ValueError("Memory integrity check failed")
         return item
@@ -33,7 +60,12 @@ class LongTermMemory:
     def get_all_verified(self) -> List[MemoryItem]:
         verified = []
         logging.debug("Getting all verified long-term items")
-        for item in self._items.values():
-            if verify_item(item, self._agent_public_key):
-                verified.append(item)
+        results = self._collection.get()
+        if results and results.get("ids"):
+            for i, m_id in enumerate(results["ids"]):
+                metadata = results["metadatas"][i]
+                content = results["documents"][i]
+                item = MemoryItem.from_dict(metadata, m_id, content)
+                if verify_item(item, self._agent_public_key):
+                    verified.append(item)
         return verified

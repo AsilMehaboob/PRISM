@@ -33,3 +33,19 @@ class MemoryItem:
             trust_score=trust_score,
             signature=None,
         )
+
+    @classmethod
+    def from_dict(cls, data: dict, m_id: str, content: str):
+        expires_at_raw = data.get("expires_at")
+        return cls(
+            id=m_id,
+            content=content,
+            source=data["source"],
+            tier=data["tier"],
+            created_at=datetime.fromisoformat(data["created_at"]),
+            trust_score=float(data["trust_score"]),
+            signature=data["signature"],
+            expires_at=(
+                datetime.fromisoformat(expires_at_raw) if expires_at_raw else None
+            ),
+        )
