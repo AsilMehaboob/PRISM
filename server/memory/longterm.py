@@ -43,19 +43,6 @@ class LongTermMemory:
         )
         logging.debug(f"Added long-term item: {item.id}")
 
-    def get(self, memory_id: str) -> MemoryItem:
-        logging.debug(f"Getting long-term item: {memory_id}")
-        results = self._collection.get(ids=[memory_id])
-        if not results or not results.get("ids"):
-            raise KeyError(f"Memory item {memory_id} not found")
-
-        metadata = results["metadatas"][0]
-        content = results["documents"][0]
-        item = MemoryItem.from_dict(metadata, memory_id, content)
-
-        if not verify_item(item, self._agent_public_key):
-            raise ValueError("Memory integrity check failed")
-        return item
 
     def get_all_verified(self) -> List[MemoryItem]:
         verified = []
