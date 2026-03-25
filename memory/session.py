@@ -30,7 +30,6 @@ class SessionMemory:
             raise ValueError("Checksum verification failed")
 
         metadata = {
-            "source": item.source,
             "tier": item.tier,
             "created_at": item.created_at.isoformat(),
             "trust_score": item.trust_score,

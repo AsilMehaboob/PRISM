@@ -26,7 +26,7 @@ def load_keypair():
 def _payload(item: MemoryItem) -> bytes:
     logging.debug(f"Creating payload for item: {item}")
     return (
-        f"{item.id}|{item.content}|{item.source}|{item.created_at.isoformat()}".encode()
+        f"{item.id}|{item.content}|{item.created_at.isoformat()}".encode()
     )
 
 

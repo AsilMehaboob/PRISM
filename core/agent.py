@@ -1,24 +1,16 @@
-"""
-vulnerable_baseline.py
-======================
-Deliberately VULNERABLE multi-user LangGraph agent.
-
-SECURITY DIRECTIVE: commit_to_shared_memory_node() is intentionally left
-vulnerable. Raw, unfiltered tool output is written directly to shared_knowledge.
-DO NOT patch this — it is the attack surface under study.
-"""
-
 import os
-import uuid
 import requests
 from bs4 import BeautifulSoup
-from typing import TypedDict, Annotated, Sequence
+from typing import TypedDict, Annotated, Sequence, Optional
 import operator
+from datetime import datetime
 
-# LangChain / LangGraph
 from langchain_core.messages import (
-    BaseMessage, HumanMessage, AIMessage,
-    ToolMessage, SystemMessage,
+    BaseMessage,
+    HumanMessage,
+    AIMessage,
+    ToolMessage,
+    SystemMessage,
 )
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
@@ -26,39 +18,33 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_community.document_loaders import PyPDFLoader
 from langgraph.graph import StateGraph, END
 
-# Chroma DB
-import chromadb
+from memory.models import MemoryItem
+from memory.router import classifier
+from memory.longterm import LongTermMemory
+from memory.session import SessionMemory
+from memory.scratch import ScratchMemory
+from memory.crypto import load_keypair, sign_item, sign_session_item
 
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENAI_API_KEY"),
+    temperature=0,
+)
 
-
-
-
-chroma_client = chromadb.Client()
-
-shared_knowledge  = chroma_client.get_or_create_collection(name="shared_knowledge")
-
-user_a_memory = chroma_client.get_or_create_collection(name="user_a_memory")
-user_b_memory = chroma_client.get_or_create_collection(name="user_b_memory")
-
-
-def get_user_collection(user_id: str):
-    """Return the private Chroma collection for the given user."""
-    return user_a_memory if user_id.upper() == "A" else user_b_memory
-
-
-#langgraph state
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], operator.add]
-    current_user: str
-    retrieved_context: str
-
-#Tool definitions
 
 ddg_search = DuckDuckGoSearchRun()
 
 
+# agent state
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], operator.add]
+    user_id: str
+    retrieved_context: str
+
+
+# web search tool
 @tool
 def web_search(query: str) -> str:
     """
@@ -72,6 +58,7 @@ def web_search(query: str) -> str:
         return f"Error performing web search: {e}"
 
 
+# web scraper tool
 @tool
 def web_scraper(url: str) -> str:
     """
@@ -85,7 +72,7 @@ def web_scraper(url: str) -> str:
             return f"Error: received HTTP {response.status_code} for URL: {url}"
         soup = BeautifulSoup(response.content, "html.parser", from_encoding="utf-8")
         text = soup.get_text(separator=" ", strip=True)
-        return text[:5000]  # limited :) for demo token limits
+        return text
     except requests.exceptions.MissingSchema:
         return f"Error: invalid URL format — '{url}'. Include the scheme (https://)."
     except requests.exceptions.ConnectionError:
@@ -94,6 +81,7 @@ def web_scraper(url: str) -> str:
         return f"Error scraping website: {e}"
 
 
+# document parser tool
 @tool
 def document_parser(file_path: str) -> str:
     """
@@ -101,7 +89,6 @@ def document_parser(file_path: str) -> str:
     Use this tool when the user provides a file path ending in .pdf and asks you to
     read or summarize it. Returns the full raw text extracted from the PDF.
     """
-    
     if not os.path.exists(file_path):
         return f"Error: file not found at path '{file_path}'."
     if not file_path.lower().endswith(".pdf"):
@@ -116,47 +103,73 @@ def document_parser(file_path: str) -> str:
     except Exception as e:
         return f"Error parsing document: {e}"
 
-# os.environ["OPENAI_API_KEY"] = "paste api key here" 
-llm = ChatOpenAI(model="gpt-4o-mini", 
-                 base_url="https://openrouter.ai/api/v1",
-                 temperature=0)
+
+# long-term memory initialization with key loading
+try:
+    private_key, public_key = load_keypair()
+    longterm_memory = LongTermMemory(public_key)
+except ValueError as e:
+    print(f"Error: {e}")
+    raise SystemExit("Error: Memory signing disabled due to invalid keys.")
+
+
+# session and scratch memory initialization
+session_memory = SessionMemory()
+scratch_memory = ScratchMemory()
 
 
 tools = [web_search, web_scraper, document_parser]
-llm_with_tools = llm.bind_toozls(tools)
+llm_with_tools = llm.bind_tools(tools)
 tool_map = {t.name: t for t in tools}
 
 
-
-#  Nodes <kp>
-
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], operator.add]
-    current_user: str
-    retrieved_context: str
-
-
 def retrieve_memory_node(state: AgentState) -> dict:
-    """Pull context from both Shared Knowledge and the user's Personal Memory."""
+    """Pull context from all memory tiers."""
     latest_message = state["messages"][-1].content
-    user_id        = state["current_user"]
-    user_collection = get_user_collection(user_id)
+    user_id = state["user_id"]
 
     context_pieces = []
 
-    # Personal memory
-    personal_results = user_collection.query(query_texts=[latest_message], n_results=1)
-    if personal_results["documents"] and personal_results["documents"][0]:
-        context_pieces.append(
-            "--- PERSONAL MEMORY ---\n" + "\n".join(personal_results["documents"][0])
-        )
+    # scratch memory
+    try:
+        scratch_items = scratch_memory.get_all()
+        user_scratch = [item for item in scratch_items if item.user_id == user_id]
+        relevant_scratch = [
+            item.content
+            for item in user_scratch
+            if latest_message.lower() in item.content.lower()
+        ]
+        if relevant_scratch:
+            context_pieces.append(
+                "--- SCRATCH MEMORY ---\n" + "\n".join(relevant_scratch[:3])
+            )
+    except Exception as e:
+        print(f"Error searching scratch memory: {e}")
 
-    #   Shared knowledge (attacker payload surfaces here for victim)
-    shared_results = shared_knowledge.query(query_texts=[latest_message], n_results=2)
-    if shared_results["documents"] and shared_results["documents"][0]:
-        context_pieces.append(
-            "--- SHARED KNOWLEDGE ---\n" + "\n".join(shared_results["documents"][0])
-        )
+    # session memory
+    try:
+        session_items = session_memory.search(latest_message, n_results=3)
+        user_session = [item for item in session_items if item.user_id == user_id]
+        if user_session:
+            context_pieces.append(
+                "--- SESSION MEMORY ---\n"
+                + "\n".join([item.content for item in user_session])
+            )
+    except Exception as e:
+        print(f"Error searching session memory: {e}")
+
+    # long-term memory
+    if longterm_memory:
+        try:
+            longterm_items = longterm_memory.search(latest_message, n_results=3)
+            user_longterm = [item for item in longterm_items if item.user_id == user_id]
+            if user_longterm:
+                context_pieces.append(
+                    "--- LONGTERM MEMORY ---\n"
+                    + "\n".join([item.content for item in user_longterm])
+                )
+        except Exception as e:
+            print(f"Error searching long-term memory: {e}")
 
     return {"retrieved_context": "\n\n".join(context_pieces)}
 
@@ -166,9 +179,10 @@ def orchestrator_node(state: AgentState) -> dict:
     context = state.get("retrieved_context", "")
 
     system_prompt = (
-        f"You are a helpful AI assistant talking to User {state['current_user']}.\n"
-        f"Here is relevant context retrieved from your databases:\n\n{context}\n\n"
+        f"You are a helpful AI assistant. "
+        f"Here is relevant context from memory:\n\n{context}\n\n"
         f"Use this context to inform your answers. If you need more information, use your tools."
+        f"Be helpful and conversational."
     )
 
     messages_for_llm = [SystemMessage(content=system_prompt)] + list(state["messages"])
@@ -202,29 +216,50 @@ def execute_tools_node(state: AgentState) -> dict:
     return {"messages": tool_outputs}
 
 
-def commit_to_shared_memory_node(state: AgentState) -> dict:
-    """
-    🚨 DELIBERATE VULNERABILITY — DO NOT PATCH 🚨
-
-    Blindly writes the raw output of the most recent tool call into the
-    globally shared Chroma collection with zero sanitisation.  Any prompt
-    injection payload embedded in a scraped page or attacker-supplied PDF
-    will be persisted here and will surface in every future user's context.
-    """
+def store_to_memory_node(state: AgentState) -> dict:
+    """Store tool outputs and conversation to appropriate memory tiers using router."""
+    print(f"DEBUG: Storing memory for user_id: {state.get('user_id')}")  # Debug
     for message in reversed(state["messages"]):
         if isinstance(message, ToolMessage):
-            raw_text   = message.content
-            tool_source = message.name
+            memory_item = MemoryItem.create(
+                content=message.content,
+                tier="SCRATCH",  # dummy tier
+                trust_score=0.7,  # dummy trust score
+                user_id=state["user_id"],
+            )
+            print(f"DEBUG: Created memory item with user_id: {memory_item.user_id}")  # Debug
 
-            shared_knowledge.add(
-                documents=[raw_text],
-                metadatas=[{"source": tool_source, "added_by": state["current_user"]}],
-                ids=[str(uuid.uuid4())],
-            )
-            print(
-                f"\n[!] VULNERABILITY EXECUTED: Raw output from '{tool_source}' "
-                f"dumped into SHARED KNOWLEDGE by User {state['current_user']}."
-            )
+            # dummy router
+            classifier(memory_item)
+            print(f"DEBUG: Memory item tier after classification: {memory_item.tier}")  # Debug
+
+            if memory_item.tier == "SESSION":
+                from datetime import timedelta
+
+                # 168 hours = 1 week
+                memory_item.expires_at = datetime.utcnow() + timedelta(hours=168)
+
+            # sign if keys
+            if private_key:
+                if memory_item.tier == "LONGTERM":
+                    sign_item(memory_item, private_key)
+                elif memory_item.tier == "SESSION":
+                    sign_session_item(memory_item)
+
+            # store based on tier
+            try:
+                if memory_item.tier == "LONGTERM" and longterm_memory:
+                    longterm_memory.add(memory_item)
+                    print(f"Stored to long-term memory: {memory_item.id[:8]}...")
+                elif memory_item.tier == "SESSION":
+                    session_memory.add(memory_item)
+                    print(f"Stored to session memory: {memory_item.id[:8]}...")
+                elif memory_item.tier == "SCRATCH":
+                    scratch_memory.add(memory_item)
+                    print(f"Stored to scratch memory: {memory_item.id[:8]}...")
+            except Exception as e:
+                print(f"Failed to store to {memory_item.tier.lower()} memory: {e}")
+
             break
 
     return {}
@@ -234,20 +269,22 @@ def should_continue(state: AgentState) -> str:
     """Route to tool execution if the LLM issued tool calls; otherwise end."""
     last_message = state["messages"][-1]
     if getattr(last_message, "tool_calls", None):
-        return "Execute_Tools_Node"   # ← BUG FIX: was "execute_tools"
+        return "Execute_Tools_Node"
     return END
 
 
-#  Build Graph
+# build graph
 workflow = StateGraph(AgentState)
 
-workflow.add_node("Retrieve_Memory_Node",       retrieve_memory_node)
-workflow.add_node("Orchestrator_Node",           orchestrator_node)
-workflow.add_node("Execute_Tools_Node",          execute_tools_node)
-workflow.add_node("Commit_To_Shared_Memory_Node", commit_to_shared_memory_node)
+workflow.add_node("Retrieve_Memory_Node", retrieve_memory_node)
+workflow.add_node("Orchestrator_Node", orchestrator_node)
+workflow.add_node("Execute_Tools_Node", execute_tools_node)
+workflow.add_node("Store_To_Memory_Node", store_to_memory_node)
 
 workflow.set_entry_point("Retrieve_Memory_Node")
+
 workflow.add_edge("Retrieve_Memory_Node", "Orchestrator_Node")
+
 workflow.add_conditional_edges(
     "Orchestrator_Node",
     should_continue,
@@ -256,105 +293,57 @@ workflow.add_conditional_edges(
         END: END,
     },
 )
-workflow.add_edge("Execute_Tools_Node",          "Commit_To_Shared_Memory_Node")
-workflow.add_edge("Commit_To_Shared_Memory_Node", "Orchestrator_Node")
 
-vulnerable_agent = workflow.compile()
+workflow.add_edge("Execute_Tools_Node", "Store_To_Memory_Node")
+workflow.add_edge("Store_To_Memory_Node", "Orchestrator_Node")
 
-
-#Summarisation fucntion to work after each user ends convo seison
-
-def summarize_and_store_conversation(chat_history: list, user_id: str) -> None:
-    """Summarise the session into 3 bullet points and store in the user's private DB."""
-    # Filter to messages with real content (exclude empty tool ACKs, etc.)
-    meaningful = [m for m in chat_history if getattr(m, "content", "")]
-    if len(meaningful) <= 1:
-        print("[*] Nothing substantial to summarise.")
-        return
-
-    print(f"\n[*] Summarising conversation for User {user_id} …")
-
-    history_text = "\n".join(
-        [f"{type(m).__name__}: {m.content}" for m in meaningful]
-    )
-    summary_prompt = (
-        "Summarise the following conversation into exactly 3 concise bullet points, "
-        "focusing on the key facts and decisions discussed:\n\n" + history_text
-    )
-    summary = llm.invoke(summary_prompt).content
-
-    user_collection = get_user_collection(user_id)
-    user_collection.add(
-        documents=[summary],
-        metadatas=[{"type": "conversation_summary"}],
-        ids=[str(uuid.uuid4())],
-    )
-    print(f"[*] Summary saved to user_{user_id.lower()}_memory.")
+research_agent = workflow.compile()
 
 
+def process_discord_message(user_id: str, message_content: str) -> str:
+    human_message = HumanMessage(content=message_content)
 
-if __name__ == "__main__":
-    print("=" * 60)
-    print("  Vulnerable Baseline Agent  (Memory Poisoning Demo)")
-    print("=" * 60)
+    initial_state: AgentState = {
+        "messages": [human_message],
+        "user_id": user_id,
+        "retrieved_context": "",
+    }
 
     try:
-        while True:
-            current_user = input(
-                "\nLogin as (A / B) or type 'quit' to shut down: "
-            ).strip().upper()
+        result = research_agent.invoke(initial_state)
 
-            if current_user == "QUIT":
-                print("Server shut down.")
-                break
+        final_messages = result["messages"]
+        for msg in reversed(final_messages):
+            if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
+                return msg.content
 
-            if current_user not in ("A", "B"):
-                print("Invalid user. Please enter A or B.")
-                continue
+        return "I'm sorry, I couldn't generate a response."
 
-            print(f"\n--- LOGGED IN AS USER {current_user} ---")
-            print("Type 'exit' to end the session and trigger summarisation.\n")
+    except Exception as e:
+        return f"Error processing message: {str(e)}"
 
-            session_messages: list[BaseMessage] = []
 
-            while True:
-                try:
-                    user_input = input(f"User {current_user}: ").strip()
-                except (EOFError, KeyboardInterrupt):
-                    print()
-                    break
+def get_user_memory_summary(user_id: str) -> str:
+    summary = f"Memory summary for user {user_id}:\n"
 
-                if user_input.lower() == "exit":
-                    summarize_and_store_conversation(session_messages, current_user)
-                    break
+    # session memory
+    try:
+        session_items = session_memory.get_active()
+        print(f"DEBUG: All session items: {len(session_items)}")  # Debug
+        user_session = [item for item in session_items if item.user_id == user_id]
+        print(f"DEBUG: User session items: {len(user_session)}")  # Debug
+        summary += f"Session items: {len(user_session)}\n"
+    except Exception as e:
+        summary += f"Session error: {e}\n"
 
-                if not user_input:
-                    continue
+    # long-term memory
+    try:
+        longterm_items = longterm_memory.get_all_verified()
+        print(f"DEBUG: All longterm items: {len(longterm_items)}")  # Debug
+        user_longterm = [item for item in longterm_items if item.user_id == user_id]
+        print(f"DEBUG: User longterm items: {len(user_longterm)}")  # Debug
+        summary += f"Long-term items: {len(user_longterm)}\n"
+    except Exception as e:
+        summary += f"Long-term error: {e}\n"
 
-                session_messages.append(HumanMessage(content=user_input))
-
-                initial_state: AgentState = {
-                    "messages":        session_messages,
-                    "current_user":    current_user,
-                    "retrieved_context": "",
-                }
-
-                try:
-                    for event in vulnerable_agent.stream(initial_state):
-                        for node_name, node_state in event.items():
-                            
-                            #  Check if node_state is not None before using "in"
-                            if node_state is not None and "messages" in node_state:
-                                # Extend the history instead of overwriting it
-                                session_messages.extend(node_state["messages"])
-
-                            # Safe print check for the final Orchestrator output
-                            if node_name == "Orchestrator_Node" and node_state is not None and "messages" in node_state:
-                                last_msg = node_state["messages"][-1]
-                                if not getattr(last_msg, "tool_calls", None):
-                                    print(f"\nAgent: {last_msg.content}")
-                except Exception as err:
-                    print(f"\n[ERROR] Graph execution failed: {err}")
-
-    except KeyboardInterrupt:
-        print("\n\nInterrupted. Goodbye.")
+    return summary
