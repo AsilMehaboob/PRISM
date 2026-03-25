@@ -48,9 +48,10 @@ class AgentState(TypedDict):
 @tool
 def web_search(query: str) -> str:
     """
-    Search the web for general information, news, or factual queries.
-    Use this tool when you need to find external information you do not already know.
-    Returns a string containing search results with URLs and brief snippets.
+    Search the web for current cybersecurity threats, vulnerabilities, research papers, 
+    or technical documentation. Use this tool when you need up-to-date threat intelligence,
+    security advisories, or to research specific cybersecurity topics, attack techniques,
+    or mitigation strategies. Returns relevant search results with URLs and technical snippets.
     """
     try:
         return ddg_search.run(query)
@@ -62,9 +63,11 @@ def web_search(query: str) -> str:
 @tool
 def web_scraper(url: str) -> str:
     """
-    Scrape and extract the full raw text content of a specific webpage given its URL.
-    Use this tool ONLY when you have a specific URL and need to read the entire contents
-    of that page. Returns the raw text of the webpage.
+    Extract technical content from cybersecurity websites, security blogs, vulnerability 
+    reports, or research papers. Use this tool when you have a specific URL containing 
+    security advisories, technical documentation, malware analysis reports, or threat 
+    intelligence that needs detailed analysis. Returns the full technical content for 
+    security research and analysis.
     """
     try:
         response = requests.get(url, timeout=10)
@@ -85,9 +88,11 @@ def web_scraper(url: str) -> str:
 @tool
 def document_parser(file_path: str) -> str:
     """
-    Parse and extract all text from a local PDF document.
-    Use this tool when the user provides a file path ending in .pdf and asks you to
-    read or summarize it. Returns the full raw text extracted from the PDF.
+    Parse and extract content from security reports, technical documentation, or 
+    research papers in PDF format. Use this tool when you need to analyze security 
+    advisories, vulnerability reports, malware analysis documents, or cybersecurity 
+    research papers. Returns the full technical content extracted from the PDF for 
+    detailed security analysis.
     """
     if not os.path.exists(file_path):
         return f"Error: file not found at path '{file_path}'."
@@ -179,10 +184,17 @@ def orchestrator_node(state: AgentState) -> dict:
     context = state.get("retrieved_context", "")
 
     system_prompt = (
-        f"You are a helpful AI assistant. "
-        f"Here is relevant context from memory:\n\n{context}\n\n"
-        f"Use this context to inform your answers. If you need more information, use your tools."
-        f"Be helpful and conversational."
+        f"You are a professional cybersecurity research agent with broad expertise across "
+        f"multiple domains including network security, application security, cryptography, "
+        f"threat intelligence, malware analysis, and security compliance. Your role is to "
+        f"provide comprehensive research and analysis on cybersecurity topics.\n\n"
+        f"Here is relevant context from your secure memory hierarchy:\n\n{context}\n\n"
+        f"Use this contextual information to inform your research. When analyzing security topics, "
+        f"provide detailed technical insights, current threat landscape information, and "
+        f"practical recommendations. If you need additional information, use your available "
+        f"tools to gather current data, technical documentation, or threat intelligence. "
+        f"Maintain a professional, research-oriented approach suitable for cybersecurity "
+        f"analysis and reporting."
     )
 
     messages_for_llm = [SystemMessage(content=system_prompt)] + list(state["messages"])
