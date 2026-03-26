@@ -330,6 +330,9 @@ def process_discord_message(user_id: str, message_content: str) -> str:
 
     except Exception as e:
         return f"Error processing message: {str(e)}"
+    finally:
+        scratch_memory.clear()
+        session_memory.purge_expired()
 
 
 def get_user_memory_summary(user_id: str) -> str:
