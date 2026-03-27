@@ -2,9 +2,15 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Configure logging to show pipeline and router info messages
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 from core.agent import process_discord_message, get_user_memory_summary
 
