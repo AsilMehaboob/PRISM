@@ -44,7 +44,6 @@ class LongTermMemory:
         metadata = {
             "tier": item.tier,
             "created_at": item.created_at.isoformat(),
-            "trust_score": item.trust_score,
             "signature": item.signature,
             "user_id": item.user_id,
         }

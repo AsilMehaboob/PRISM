@@ -235,7 +235,6 @@ def store_to_memory_node(state: AgentState) -> dict:
             memory_item = MemoryItem.create(
                 content=message.content,
                 tier="SCRATCH",  # dummy tier
-                trust_score=0.7,  # dummy trust score
                 user_id=state["user_id"],
             )
 

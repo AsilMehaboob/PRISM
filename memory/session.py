@@ -42,9 +42,9 @@ class SessionMemory:
         metadata = {
             "tier": item.tier,
             "created_at": item.created_at.isoformat(),
-            "trust_score": item.trust_score,
             "signature": item.signature,
             "expires_at": item.expires_at.isoformat(),
+            "user_id": item.user_id,
         }
 
         self._collection.upsert(
