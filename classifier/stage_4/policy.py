@@ -83,7 +83,7 @@ def check_policy(
         :class:`PolicyResult` with verdict PASS | REJECT | AMBIGUOUS
     """
     sources = allowed_sources or DEFAULT_ALLOWED_SOURCES
-    source = str(metadata.get("source", ""))
+    source = str(metadata.get("source", "")).strip().lower()
 
     if source not in sources:
         logger.debug("Stage 4 | REJECT source=%r not in allowlist", source)
