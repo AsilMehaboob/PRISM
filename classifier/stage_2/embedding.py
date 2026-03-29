@@ -5,6 +5,8 @@ import time
 from functools import lru_cache
 from typing import Any, Dict
 
+from cachetools import TTLCache, cached
+
 logger = logging.getLogger(__name__)
 
 TierScores = Dict[str, float]
@@ -62,7 +64,10 @@ def _softmax(scores: Dict[str, float], temperature: float = 0.12) -> Dict[str, f
     total = sum(exp_vals.values())
     return {k: exp_vals[k] / total for k in _TIER_ORDER}
 
-@lru_cache(maxsize=1024)
+
+_EMBED_CACHE = TTLCache(maxsize=1024, ttl=600)  # 10 minute expiry for PII security
+
+@cached(_EMBED_CACHE)
 def _embed(text: str) -> list[float]:
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
