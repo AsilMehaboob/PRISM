@@ -134,7 +134,7 @@ def run_heuristics(content: str, metadata: Dict[str, Any]) -> bool:
 
     try:
         content.encode('utf-8').decode('utf-8')
-    except UnicodeEncodeError or UnicodeDecodeError:
+    except (UnicodeEncodeError,UnicodeDecodeError):
         logging.debug("Heuristics: Rejected - Invalid UTF-8 encoding")
         return False
 
