@@ -25,7 +25,6 @@ class MessageRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     response: str
-    conversation_id: str
 
 
 class MemorySummaryResponse(BaseModel):
@@ -48,7 +47,7 @@ async def chat(request: Dict[str, Any]):
             message_content=message_content,
         )
 
-        return MessageResponse(response=response, conversation_id="default").__dict__
+        return MessageResponse(response=response)
 
     except Exception as e:
         raise HTTPException(
