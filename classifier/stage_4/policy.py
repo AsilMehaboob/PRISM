@@ -93,7 +93,8 @@ def check_policy(
         )
 
     try:
-        trust_score = float(metadata.get("trust_score", 1.0))
+        raw_score = float(metadata.get("trust_score", 1.0))
+        trust_score = min(1.0, max(0.0, raw_score))
     except (TypeError, ValueError):
         trust_score = 0.0
 
