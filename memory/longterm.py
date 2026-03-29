@@ -62,7 +62,7 @@ class LongTermMemory:
             for i, m_id in enumerate(results["ids"]):
                 metadata = results["metadatas"][i]
                 content = results["documents"][i]
-                item = MemoryItem.from_dict(metadata, m_id, content)
+                item = MemoryItem.model_validate({**metadata, "id": m_id, "content": content})
                 if verify_item(item, self._agent_public_key):
                     verified.append(item)
         return verified
@@ -76,7 +76,7 @@ class LongTermMemory:
             for i, m_id in enumerate(results["ids"][0]):
                 metadata = results["metadatas"][0][i]
                 content = results["documents"][0][i]
-                item = MemoryItem.from_dict(metadata, m_id, content)
+                item = MemoryItem.model_validate({**metadata, "id": m_id, "content": content})
 
                 if verify_item(item, self._agent_public_key):
                     verified.append(item)

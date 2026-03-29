@@ -63,7 +63,7 @@ class SessionMemory:
             for i, m_id in enumerate(results["ids"]):
                 metadata = results["metadatas"][i]
                 content = results["documents"][i]
-                item = MemoryItem.from_dict(metadata, m_id, content)
+                item = MemoryItem.model_validate({**metadata, "id": m_id, "content": content})
 
                 if item.expires_at > now and verify_session_item(item):
                     active.append(item)
@@ -96,7 +96,7 @@ class SessionMemory:
             for i, m_id in enumerate(results["ids"][0]):
                 metadata = results["metadatas"][0][i]
                 content = results["documents"][0][i]
-                item = MemoryItem.from_dict(metadata, m_id, content)
+                item = MemoryItem.model_validate({**metadata, "id": m_id, "content": content})
 
                 if item.expires_at > now and verify_session_item(item):
                     active.append(item)

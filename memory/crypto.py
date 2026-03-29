@@ -51,6 +51,7 @@ def verify_item(item: MemoryItem, public_key: Ed25519PublicKey) -> bool:
 
 
 def generate_checksum(item: MemoryItem) -> str:
+    logging.debug(f"Generating checksum for item: {item}")
     return f"{zlib.adler32(_payload(item)):x}"
 
 

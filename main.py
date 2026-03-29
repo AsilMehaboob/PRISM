@@ -7,8 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Configure logging to show pipeline and router info messages
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -29,23 +28,28 @@ class MessageResponse(BaseModel):
 
 @app.get("/")
 def main():
+    logger.debug("Health check requested")
     return {"status": "ok"}
 
 
 @app.post("/chat", response_model=MessageResponse)
 async def chat(request: Dict[str, Any]):
+    user_id = request.get("user_id")
+    message_content = request.get("message_content")
+    
+    logger.info(f"Chat request from user_id={user_id}, content_length={len(message_content) if message_content else 0}")
+    
     try:
-        user_id = request.get("user_id")
-        message_content = request.get("message_content")
-
         response = process_discord_message(
             user_id=user_id,
             message_content=message_content,
         )
-
+        
+        logger.info(f"Chat response generated for user_id={user_id}, response_length={len(response)}")
         return MessageResponse(response=response)
 
     except Exception as e:
+        logger.error(f"Error processing chat for user_id={user_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Error processing message: {str(e)}"
         )

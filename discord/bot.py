@@ -1,9 +1,12 @@
 import discord
 import os
 import httpx
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class MyBot(discord.Client):
@@ -19,15 +22,18 @@ class MyBot(discord.Client):
         self.user_conversations = {}
 
     async def on_ready(self):
-        print(f"Logged in as {self.user}\n")
+        logger.info(f"Logged in as {self.user}")
 
     async def on_message(self, message):
         if message.author == self.user:
             return
 
         content = message.content
+        logger.debug(f"Received message from {message.author.id}: {content[:50]}...")
+        
         if self.user in message.mentions:
             content = content.replace(f"<@{self.user.id}>", "").strip()
+            logger.debug(f"Bot mentioned, cleaned content: {content[:50]}...")
         
         if content.startswith("!"):
             command = content[1:].split()[0].lower()
@@ -41,9 +47,11 @@ class MyBot(discord.Client):
             return
 
         user_id = str(message.author.id)
+        logger.debug(f"Processing message for user_id={user_id}")
 
         if user_id not in self.user_conversations:
             self.user_conversations[user_id] = f"{user_id}_{message.channel.id}"
+            logger.debug(f"Created new conversation for user_id={user_id}")
 
         conversation_id = self.user_conversations[user_id]
 
@@ -54,11 +62,14 @@ class MyBot(discord.Client):
             content = content[1:].strip()
 
         if not content:
+            logger.debug("Empty content after cleaning, skipping")
             return
 
+        logger.debug(f"Sending API request for user_id={user_id}, content_length={len(content)}")
         async with message.channel.typing():
             try:
                 async with httpx.AsyncClient(timeout=120.0) as client:
+                    logger.debug(f"POST to {self.api_base_url}/chat")
                     response = await client.post(
                         f"{self.api_base_url}/chat",
                         json={
@@ -74,6 +85,7 @@ class MyBot(discord.Client):
                         "response",
                         "Hmm… I didn't get that. Mind saying it another way?",
                     )
+                    logger.debug(f"API response received, length={len(bot_response)}")
 
                     if len(bot_response) > 2000:
                         chunks = [
@@ -89,13 +101,15 @@ class MyBot(discord.Client):
                     await message.reply(error_msg)
 
             except httpx.TimeoutException:
+                logger.warning(f"Request timed out for user_id={user_id}")
                 await message.reply("Sorry, request timed out. Please try again.")
             except httpx.ConnectError:
+                logger.error(f"Cannot connect to API at {self.api_base_url}")
                 await message.reply(
                     "Sorry, I can't connect to my brain right now. Please try again later."
                 )
             except Exception as e:
-                print(f"Error processing message: {e}")
+                logger.error(f"Error processing message: {e}", exc_info=True)
                 await message.reply("Sorry, something went wrong. Please try again.")
 
     async def on_command(self, message, command):

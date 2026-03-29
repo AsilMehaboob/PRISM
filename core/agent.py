@@ -4,6 +4,9 @@ from bs4 import BeautifulSoup
 from typing import TypedDict, Annotated, Sequence, Optional
 import operator
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import (
     BaseMessage,
@@ -113,14 +116,16 @@ def document_parser(file_path: str) -> str:
 try:
     private_key, public_key = load_keypair()
     longterm_memory = LongTermMemory(public_key)
+    logger.debug("Loaded keypair and initialized long-term memory")
 except ValueError as e:
-    print(f"Error: {e}")
+    logger.error(f"Failed to load keypair: {e}")
     raise SystemExit("Error: Memory signing disabled due to invalid keys.")
 
 
 # session and scratch memory initialization
 session_memory = SessionMemory()
 scratch_memory = ScratchMemory()
+logger.debug("Initialized session and scratch memory")
 
 
 tools = [web_search, web_scraper, document_parser]
@@ -132,6 +137,7 @@ def retrieve_memory_node(state: AgentState) -> dict:
     """Pull context from all memory tiers."""
     latest_message = state["messages"][-1].content
     user_id = state["user_id"]
+    logger.debug(f"Retrieving memory for user_id={user_id}, query={latest_message[:50]}...")
 
     context_pieces = []
 
@@ -145,23 +151,25 @@ def retrieve_memory_node(state: AgentState) -> dict:
             if latest_message.lower() in item.content.lower()
         ]
         if relevant_scratch:
+            logger.debug(f"Found {len(relevant_scratch)} relevant scratch items")
             context_pieces.append(
                 "--- SCRATCH MEMORY ---\n" + "\n".join(relevant_scratch[:3])
             )
     except Exception as e:
-        print(f"Error searching scratch memory: {e}")
+        logger.error(f"Error searching scratch memory: {e}", exc_info=True)
 
     # session memory
     try:
         session_items = session_memory.search(latest_message, n_results=3)
         user_session = [item for item in session_items if item.user_id == user_id]
         if user_session:
+            logger.debug(f"Found {len(user_session)} relevant session items")
             context_pieces.append(
                 "--- SESSION MEMORY ---\n"
                 + "\n".join([item.content for item in user_session])
             )
     except Exception as e:
-        print(f"Error searching session memory: {e}")
+        logger.error(f"Error searching session memory: {e}", exc_info=True)
 
     # long-term memory
     if longterm_memory:
@@ -169,19 +177,22 @@ def retrieve_memory_node(state: AgentState) -> dict:
             longterm_items = longterm_memory.search(latest_message, n_results=3)
             user_longterm = [item for item in longterm_items if item.user_id == user_id]
             if user_longterm:
+                logger.debug(f"Found {len(user_longterm)} relevant long-term items")
                 context_pieces.append(
                     "--- LONGTERM MEMORY ---\n"
                     + "\n".join([item.content for item in user_longterm])
                 )
         except Exception as e:
-            print(f"Error searching long-term memory: {e}")
+            logger.error(f"Error searching long-term memory: {e}", exc_info=True)
 
+    logger.debug(f"Retrieved {len(context_pieces)} memory context pieces")
     return {"retrieved_context": "\n\n".join(context_pieces)}
 
 
 def orchestrator_node(state: AgentState) -> dict:
     """LLM evaluates context and decides to answer directly or invoke a tool."""
     context = state.get("retrieved_context", "")
+    logger.debug(f"Orchestrator processing with context_length={len(context)}")
 
     system_prompt = (
         f"You are a professional cybersecurity research agent with broad expertise across "
@@ -199,6 +210,8 @@ def orchestrator_node(state: AgentState) -> dict:
 
     messages_for_llm = [SystemMessage(content=system_prompt)] + list(state["messages"])
     response = llm_with_tools.invoke(messages_for_llm)
+    has_tools = getattr(response, "tool_calls", None)
+    logger.debug(f"LLM response, tool_calls={has_tools is not None}")
     return {"messages": [response]}
 
 
@@ -206,6 +219,8 @@ def execute_tools_node(state: AgentState) -> dict:
     """Execute whichever tools the LLM requested."""
     last_message = state["messages"][-1]
     tool_outputs = []
+    tool_calls = getattr(last_message, "tool_calls", [])
+    logger.debug(f"Executing {len(tool_calls)} tool(s)")
 
     for tool_call in last_message.tool_calls:
         tool_name = tool_call["name"]
@@ -214,7 +229,9 @@ def execute_tools_node(state: AgentState) -> dict:
 
         if selected_tool is None:
             result = f"Error: unknown tool '{tool_name}'."
+            logger.warning(f"Unknown tool requested: {tool_name}")
         else:
+            logger.debug(f"Invoking tool: {tool_name}")
             result = selected_tool.invoke(tool_args)
 
         tool_outputs.append(
@@ -230,9 +247,11 @@ def execute_tools_node(state: AgentState) -> dict:
 
 def store_to_memory_node(state: AgentState) -> dict:
     """Store tool outputs and conversation to appropriate memory tiers using router."""
+    user_id = state["user_id"]
+    logger.debug(f"Storing to memory for user_id={user_id}")
     for message in reversed(state["messages"]):
         if isinstance(message, ToolMessage):
-            memory_item = MemoryItem.create(
+            memory_item = MemoryItem(
                 content=message.content,
                 tier="SCRATCH",  # dummy tier
                 user_id=state["user_id"],
@@ -240,6 +259,7 @@ def store_to_memory_node(state: AgentState) -> dict:
 
             # dummy router
             classifier(memory_item)
+            logger.debug(f"Memory item classified as tier={memory_item.tier}")
 
             if memory_item.tier == "SESSION":
                 from datetime import timedelta
@@ -258,15 +278,15 @@ def store_to_memory_node(state: AgentState) -> dict:
             try:
                 if memory_item.tier == "LONGTERM" and longterm_memory:
                     longterm_memory.add(memory_item)
-                    print(f"Stored to long-term memory: {memory_item.id[:8]}...")
+                    logger.info(f"Stored to long-term memory: {memory_item.id[:8]}...")
                 elif memory_item.tier == "SESSION":
                     session_memory.add(memory_item)
-                    print(f"Stored to session memory: {memory_item.id[:8]}...")
+                    logger.info(f"Stored to session memory: {memory_item.id[:8]}...")
                 elif memory_item.tier == "SCRATCH":
                     scratch_memory.add(memory_item)
-                    print(f"Stored to scratch memory: {memory_item.id[:8]}...")
+                    logger.info(f"Stored to scratch memory: {memory_item.id[:8]}...")
             except Exception as e:
-                print(f"Failed to store to {memory_item.tier.lower()} memory: {e}")
+                logger.error(f"Failed to store to {memory_item.tier.lower()} memory: {e}")
 
             break
 
@@ -309,6 +329,7 @@ research_agent = workflow.compile()
 
 
 def process_discord_message(user_id: str, message_content: str) -> str:
+    logger.info(f"Processing Discord message for user_id={user_id}, length={len(message_content)}")
     human_message = HumanMessage(content=message_content)
 
     initial_state: AgentState = {
@@ -319,16 +340,21 @@ def process_discord_message(user_id: str, message_content: str) -> str:
 
     try:
         result = research_agent.invoke(initial_state)
+        logger.debug(f"Agent completed, total messages={len(result['messages'])}")
 
         final_messages = result["messages"]
         for msg in reversed(final_messages):
             if isinstance(msg, AIMessage) and not getattr(msg, "tool_calls", None):
+                logger.info(f"Returning final response, length={len(msg.content)}")
                 return msg.content
 
+        logger.warning("No valid AI response found in final messages")
         return "I'm sorry, I couldn't generate a response."
 
     except Exception as e:
+        logger.error(f"Agent execution failed: {e}", exc_info=True)
         return f"Error processing message: {str(e)}"
     finally:
+        logger.debug("Clearing scratch memory and purging expired sessions")
         scratch_memory.clear()
         session_memory.purge_expired()
