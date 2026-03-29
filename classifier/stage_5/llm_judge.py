@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 VALID_TIERS = frozenset({"SCRATCH", "SESSION", "LONGTERM"})
 
-GEMINI_MODEL    = "gemini-1.5-flash"
+GEMINI_MODEL    = "gemini-2.5-flash"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _SYSTEM_PROMPT = (

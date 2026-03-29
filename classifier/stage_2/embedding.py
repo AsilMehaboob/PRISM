@@ -1,3 +1,4 @@
+import json
 import logging
 import math
 import os
@@ -14,6 +15,8 @@ TierScores = Dict[str, float]
 EMBED_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 EMBED_MODEL = "gemini-embedding-001"
 EMBED_RETRIES = 3
+
+CENTROIDS_CACHE_FILE = os.path.join(os.path.dirname(__file__), "centroids.json")
 
 _TIER_ORDER = ("SCRATCH", "SESSION", "LONGTERM")
 
@@ -113,7 +116,18 @@ def _embed(text: str) -> list[float]:
 
 @lru_cache(maxsize=1)
 def _prototype_centroids() -> Dict[str, list[float]]:
+    if os.path.exists(CENTROIDS_CACHE_FILE):
+        try:
+            with open(CENTROIDS_CACHE_FILE, "r") as f:
+                data = json.load(f)
+                if all(tier in data for tier in _TIER_ORDER):
+                    logger.debug("Stage 2 | loaded centroids from disk cache")
+                    return data
+        except Exception as exc:
+            logger.warning("Stage 2 | failed to load centroids disk cache: %s", exc)
+
     centroids: Dict[str, list[float]] = {}
+    logger.info("Stage 2 | computing prototype centroids (this will hit the API)...")
     for tier in _TIER_ORDER:
         vectors = [_embed(text) for text in _PROTOTYPES[tier]]
         dim = len(vectors[0])
@@ -122,6 +136,14 @@ def _prototype_centroids() -> Dict[str, list[float]]:
             for i, value in enumerate(vec):
                 centroid[i] += value
         centroids[tier] = [value / len(vectors) for value in centroid]
+
+    try:
+        with open(CENTROIDS_CACHE_FILE, "w") as f:
+            json.dump(centroids, f)
+        logger.info("Stage 2 | saved centroids to disk cache: %s", CENTROIDS_CACHE_FILE)
+    except Exception as exc:
+        logger.warning("Stage 2 | failed to save centroids disk cache: %s", exc)
+
     return centroids
 
 def classify(content: str, metadata: Dict[str, Any]) -> TierScores:
