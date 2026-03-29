@@ -5,7 +5,8 @@ from typing import Dict, Any
 SENSITIVE_PATTERNS = {
     "credit_card": re.compile(r'\b(?:\d[ -]*?){13,16}\b'), 
     "api_key": re.compile(r'(?i)(?:api[_-]?key|secret|token|sk-[a-zA-Z0-9]{32,})'), 
-    "personal_id": re.compile(r'\b(?:\d[ -]*?){9}\b'), 
+    "ssn":          re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
+    "passport":     re.compile(r'\b[A-Z]{1,2}\d{6,9}\b'),
     "email_pass_combo": re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}:[^\s]+'), 
     "numeric_id": re.compile(r'\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b'),
 }

@@ -19,25 +19,48 @@ class PolicyResult:
 DEFAULT_ALLOWED_SOURCES: Set[str] = {"user", "agent", "system", "api", "tool"}
 
 _PROHIBITED: list[re.Pattern] = [
-    
+    # Violence instructions (Forward & Reverse)
     re.compile(
-        r'\b(kill|murder|attack|bomb|weapon|explosive|poison)\b.{0,40}'
+        r'\b(kill|murder|attack|bomb|weapon|explosive|poison)\b'
+        r'(?:(?!\n\n).){0,60}'
         r'\b(how to|instruction|guide|tutorial|step.?by.?step|recipe)\b',
-        re.IGNORECASE,
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r'\b(how to|instruction|guide|tutorial|step.?by.?step|recipe)\b'
+        r'(?:(?!\n\n).){0,60}'
+        r'\b(kill|murder|attack|bomb|weapon|explosive|poison)\b',
+        re.IGNORECASE | re.DOTALL,
     ),
     
+    # Hacking (Forward & Reverse)
     re.compile(
-        r'\b(hack|crack|exploit|bypass|inject|brute.?force)\b.{0,40}'
+        r'\b(hack|crack|exploit|bypass|inject|brute.?force)\b'
+        r'(?:(?!\n\n).){0,60}'
         r'\b(system|password|auth|database|credential|account)\b',
-        re.IGNORECASE,
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r'\b(system|password|auth|database|credential|account)\b'
+        r'(?:(?!\n\n).){0,60}'
+        r'\b(hack|crack|exploit|bypass|inject|brute.?force)\b',
+        re.IGNORECASE | re.DOTALL,
     ),
     
     re.compile(r'\b(suicide|self.?harm|self.?destruct|end my life)\b', re.IGNORECASE),
     
+    # Malware creation (Forward & Reverse)
     re.compile(
-        r'\b(malware|ransomware|trojan|spyware|keylogger|rootkit)\b.{0,30}'
+        r'\b(malware|ransomware|trojan|spyware|keylogger|rootkit)\b'
+        r'(?:(?!\n\n).){0,60}'
         r'\b(create|build|deploy|install|spread|distribute)\b',
-        re.IGNORECASE,
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r'\b(create|build|deploy|install|spread|distribute)\b'
+        r'(?:(?!\n\n).){0,60}'
+        r'\b(malware|ransomware|trojan|spyware|keylogger|rootkit)\b',
+        re.IGNORECASE | re.DOTALL,
     ),
 ]
 
@@ -83,7 +106,7 @@ def check_policy(
         :class:`PolicyResult` with verdict PASS | REJECT | AMBIGUOUS
     """
     sources = allowed_sources or DEFAULT_ALLOWED_SOURCES
-    source = str(metadata.get("source", ""))
+    source = str(metadata.get("source", "")).strip().lower()
 
     if source not in sources:
         logger.debug("Stage 4 | REJECT source=%r not in allowlist", source)
@@ -93,7 +116,8 @@ def check_policy(
         )
 
     try:
-        trust_score = float(metadata.get("trust_score", 1.0))
+        raw_score = float(metadata.get("trust_score", 1.0))
+        trust_score = min(1.0, max(0.0, raw_score))
     except (TypeError, ValueError):
         trust_score = 0.0
 

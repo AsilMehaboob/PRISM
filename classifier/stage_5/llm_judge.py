@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 VALID_TIERS = frozenset({"SCRATCH", "SESSION", "LONGTERM"})
 
-GEMINI_MODEL    = "gemini-1.5-flash"
+GEMINI_MODEL    = "gemini-2.5-flash"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _SYSTEM_PROMPT = (
@@ -27,9 +27,15 @@ def _user_prompt(
     stage2_scores: Dict[str, float],
 ) -> str:
     scores_str = ", ".join(f"{k}: {v:.3f}" for k, v in stage2_scores.items())
+    truncated_content = content[:1500]
+    if len(content) > 1500:
+        truncated_content += " ... [truncated]"
+
+    safe_metadata = {k: v for k, v in metadata.items() if k in {"source", "created_at", "session_id"}}
+
     return (
-        f"Memory content: {content!r}\n"
-        f"Metadata: {json.dumps(metadata)}\n"
+        f"Memory content: {truncated_content!r}\n"
+        f"Metadata: {json.dumps(safe_metadata)}\n"
         f"Embedding classifier scores (below confidence threshold): {scores_str}\n\n"
         "Classify this memory into the most appropriate tier."
     )
@@ -107,8 +113,12 @@ def _call_gemini(
         except Exception as exc:
             last_exc = exc
             
+            # Extract HTTP status code if this is a response error
             status = getattr(getattr(exc, "response", None), "status_code", None)
-            if status not in (429, 500, 502, 503, 504):
+            
+            # ONLY break early if we have a definitive HTTP status that isn't on the retry list.
+            # (If status is None, it's a parsing error or timeout — we SHOULD retry).
+            if status is not None and status not in (429, 500, 502, 503, 504):
                 break
 
     logger.error("Stage 5 | Gemini call failed after retries: %s", last_exc)
