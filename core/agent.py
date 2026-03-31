@@ -293,20 +293,16 @@ def store_to_memory_node(state: AgentState) -> dict:
 def should_continue(state: AgentState) -> str:
     """Route to tool execution OR go to storage before ending."""
     last_message = state["messages"][-1]
-    # If the LLM wants tools, go to tools
     if getattr(last_message, "tool_calls", None):
         return "Execute_Tools_Node"
-    # Even if no tools, go to Memory Node to save the final answer
     return "Store_To_Memory_Node"
 
 
 def after_storage_route(state: AgentState) -> str:
     """Decide if we need to go back to LLM or finish."""
     last_message = state["messages"][-1]
-    # If the last thing in state is a Tool result, we need the LLM to see it
     if isinstance(last_message, ToolMessage):
         return "Orchestrator_Node"
-    # Otherwise (it was a final AI answer), we stop
     return END
 
 
@@ -320,7 +316,6 @@ workflow.add_node("Store_To_Memory_Node", store_to_memory_node)
 workflow.set_entry_point("Retrieve_Memory_Node")
 workflow.add_edge("Retrieve_Memory_Node", "Orchestrator_Node")
 
-# Orchestrator now ALWAYS goes to either Tools or Memory (never straight to END)
 workflow.add_conditional_edges(
     "Orchestrator_Node",
     should_continue,
@@ -330,10 +325,8 @@ workflow.add_conditional_edges(
     },
 )
 
-# Tools always go to Memory
 workflow.add_edge("Execute_Tools_Node", "Store_To_Memory_Node")
 
-# Memory decides: go back for a final answer, or END
 workflow.add_conditional_edges(
     "Store_To_Memory_Node",
     after_storage_route,
