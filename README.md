@@ -13,3 +13,9 @@ This project proposes a security-aware memory hierarchy that reconceptualises ag
 <p align="justify">
 The system is evaluated against established memory-poisoning attack patterns drawn from recent red-teaming literature. Preliminary analysis indicates that the proposed architecture can reduce successful cross-session poisoning to near zero, with modest overhead relative to conventional flat memory designs. This work offers a practical, architecture-level complement to existing prompt-level filters and model alignment techniques, contributing towards the secure deployment of agentic AI systems in real-world environments.
 </p>
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+See the LICENSE file for details.
