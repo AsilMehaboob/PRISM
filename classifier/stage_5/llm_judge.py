@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 VALID_TIERS = frozenset({"SCRATCH", "SESSION", "LONGTERM"})
 
-GEMINI_MODEL    = "gemini-2.5-flash"
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+JUDGE_MODEL    = "google/gemini-2.5-flash"
+JUDGE_BASE_URL = "https://openrouter.ai/api/v1"
 
 _SYSTEM_PROMPT = (
     "You are a memory classification system for an AI agent. "
@@ -40,7 +40,7 @@ def _user_prompt(
         "Classify this memory into the most appropriate tier."
     )
 
-def _call_gemini(
+def _call_llm(
     content: str,
     metadata: Dict[str, Any],
     stage2_scores: Dict[str, float],
@@ -54,25 +54,21 @@ def _call_gemini(
         logger.error("Stage 5 | httpx is not installed; run: uv add httpx")
         return None
 
-    url = f"{base_url.rstrip('/')}/{model}:generateContent"
+    url = f"{base_url.rstrip('/')}/chat/completions"
     headers = {
-        "x-goog-api-key": api_key,
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
     body = {
-        "system_instruction": {
-            "parts": [{"text": _SYSTEM_PROMPT}]
-        },
-        "contents": [{
-            "role": "user",
-            "parts": [{"text": _user_prompt(content, metadata, stage2_scores)}],
-        }],
-        "generationConfig": {
-            "temperature": 0.0,
-            "maxOutputTokens": 512,
-            "responseMimeType": "application/json",
-        },
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": _user_prompt(content, metadata, stage2_scores)},
+        ],
+        "temperature": 0.0,
+        "max_tokens": 512,
+        "response_format": {"type": "json_object"},
     }
 
     last_exc: Optional[Exception] = None
@@ -87,21 +83,19 @@ def _call_gemini(
                 resp.raise_for_status()
 
             data      = resp.json()
-            candidate = data.get("candidates", [{}])[0]
+            choice = data.get("choices", [{}])[0]
 
-            if candidate.get("finishReason") not in ("STOP", "MAX_TOKENS"):
-                raise ValueError(f"Unexpected finishReason: {candidate.get('finishReason')!r}")
+            if choice.get("finish_reason") not in ("stop", "length"):
+                raise ValueError(f"Unexpected finish_reason: {choice.get('finish_reason')!r}")
 
-            parts = candidate.get("content", {}).get("parts", [])
-            if not parts:
-                raise ValueError("No parts in Gemini response content")
-
-            raw_text = "".join(p.get("text", "") for p in parts).strip()
+            raw_text = (choice.get("message", {}).get("content") or "").strip()
+            if not raw_text:
+                raise ValueError("Empty message content in response")
             
             start = raw_text.find("{")
             end   = raw_text.rfind("}") + 1
             if start == -1 or end == 0:
-                logger.error("Stage 5 | Invalid JSON from Gemini. Raw text: %r", raw_text)
+                logger.error("Stage 5 | Invalid JSON from LLM. Raw text: %r", raw_text)
                 raise ValueError(f"No JSON object in response: {raw_text!r}")
 
             try:
@@ -121,7 +115,7 @@ def _call_gemini(
             if status is not None and status not in (429, 500, 502, 503, 504):
                 break
 
-    logger.error("Stage 5 | Gemini call failed after retries: %s", last_exc)
+    logger.error("Stage 5 | LLM call failed after retries: %s", last_exc)
     return None
 
 def _fallback(stage2_scores: Dict[str, float], reason: str) -> Tuple[str, float, str]:
@@ -133,14 +127,14 @@ def judge(
     metadata: Dict[str, Any],
     stage2_scores: Dict[str, float],
     api_key: Optional[str] = None,
-    base_url: str = GEMINI_BASE_URL,
-    model: str = GEMINI_MODEL,
+    base_url: str = JUDGE_BASE_URL,
+    model: str = JUDGE_MODEL,
 ) -> Tuple[str, float, str]:
     """
-    Ask Gemini to resolve ambiguous memory tier classification.
+    Ask the LLM (via OpenRouter) to resolve ambiguous memory tier classification.
 
-    Uses the native Gemini generateContent API with JSON output mode.
-    Set GEMINI_API_KEY in the environment or pass api_key directly.
+    Uses the OpenRouter chat-completions API with JSON output mode.
+    Set OPENROUTER_API_KEY in the environment or pass api_key directly.
 
     Returns:
         (tier, confidence, reasoning)
@@ -150,20 +144,20 @@ def judge(
     - The HTTP call fails
     - The response is unparseable or contains an invalid tier
     """
-    resolved_key = api_key or os.getenv("GEMINI_API_KEY", "")
+    resolved_key = api_key or os.getenv("OPENROUTER_API_KEY", "")
 
     if not resolved_key:
         logger.warning("Stage 5 | no API key; using Stage 2 fallback")
         return _fallback(stage2_scores, "no API key configured")
 
-    result = _call_gemini(content, metadata, stage2_scores, resolved_key, base_url, model)
+    result = _call_llm(content, metadata, stage2_scores, resolved_key, base_url, model)
     if result is None:
-        return _fallback(stage2_scores, "Gemini call failed")
+        return _fallback(stage2_scores, "LLM call failed")
 
     raw_tier = str(result.get("tier", "")).upper()
     if raw_tier not in VALID_TIERS:
-        logger.warning("Stage 5 | invalid tier %r from Gemini; falling back", raw_tier)
-        return _fallback(stage2_scores, f"invalid tier {raw_tier!r} from Gemini")
+        logger.warning("Stage 5 | invalid tier %r from LLM; falling back", raw_tier)
+        return _fallback(stage2_scores, f"invalid tier {raw_tier!r} from LLM")
 
     confidence = min(1.0, max(0.0, float(result.get("confidence", 0.5))))
     reasoning  = str(result.get("reasoning", ""))

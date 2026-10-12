@@ -12,11 +12,13 @@ logger = logging.getLogger(__name__)
 
 TierScores = Dict[str, float]
 
-EMBED_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
-EMBED_MODEL = "gemini-embedding-001"
+EMBED_BASE_URL = "https://openrouter.ai/api/v1"
+EMBED_MODEL = "google/gemini-embedding-001"
 EMBED_RETRIES = 3
 
-CENTROIDS_CACHE_FILE = os.path.join(os.path.dirname(__file__), "centroids.json")
+CENTROIDS_CACHE_FILE = os.path.join(
+    os.path.dirname(__file__), f"centroids_{EMBED_MODEL.replace('/', '_')}.json"
+)
 
 _TIER_ORDER = ("SCRATCH", "SESSION", "LONGTERM")
 
@@ -72,24 +74,21 @@ _EMBED_CACHE = TTLCache(maxsize=1024, ttl=600)  # 10 minute expiry for PII secur
 
 @cached(_EMBED_CACHE)
 def _embed(text: str) -> list[float]:
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
 
     try:
         import httpx
     except ImportError as exc:
         raise RuntimeError("httpx is not installed") from exc
 
-    url = f"{EMBED_BASE_URL}/{EMBED_MODEL}:embedContent"
+    url = f"{EMBED_BASE_URL}/embeddings"
     headers = {
-        "x-goog-api-key": api_key,
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    body = {
-        "model": f"models/{EMBED_MODEL}",
-        "content": {"parts": [{"text": text}]},
-    }
+    body = {"model": EMBED_MODEL, "input": text}
 
     last_exc: Exception | None = None
     for attempt in range(EMBED_RETRIES):
@@ -98,7 +97,7 @@ def _embed(text: str) -> list[float]:
                 resp = client.post(url, json=body, headers=headers)
                 resp.raise_for_status()
             data = resp.json()
-            values = data["embedding"]["values"]
+            values = data["data"][0]["embedding"]
             if not isinstance(values, list) or not values:
                 raise ValueError("Invalid embedding response")
             return [float(v) for v in values]
@@ -148,7 +147,7 @@ def _prototype_centroids() -> Dict[str, list[float]]:
 
 def classify(content: str, metadata: Dict[str, Any]) -> TierScores:
     """
-    Classify text using real Gemini embeddings + prototype similarity.
+    Classify text using OpenRouter embeddings + prototype similarity.
 
     Returns probabilities for SCRATCH, SESSION, LONGTERM.
     Falls back to lexical scoring if embedding calls are unavailable.
@@ -162,7 +161,7 @@ def classify(content: str, metadata: Dict[str, Any]) -> TierScores:
             sims["SCRATCH"] += 0.02
         probs = _softmax(sims)
         logger.debug(
-            "Stage 2 | backend=gemini-embed model=%s sims=%s probs=%s",
+            "Stage 2 | backend=openrouter-embed model=%s sims=%s probs=%s",
             EMBED_MODEL,
             {k: f"{v:.4f}" for k, v in sims.items()},
             {k: f"{v:.3f}" for k, v in probs.items()},

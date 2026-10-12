@@ -16,7 +16,7 @@ def classifier(item: MemoryItem) -> None:
     result = run_pipeline(
         content=item.content,
         metadata=metadata,
-        llm_api_key=os.getenv("GEMINI_API_KEY")
+        llm_api_key=os.getenv("OPENROUTER_API_KEY")
     )
     
     if result.passed and result.tier:
@@ -29,4 +29,4 @@ def classifier(item: MemoryItem) -> None:
         msg = f"Pipeline rejected memory {item.id[:8]}, defaulting to SCRATCH. Reason: {result.reasoning}"
         print(f"\n[DEBUG] {msg}")  # Guaranteed terminal feedback
         logger.info(msg)
-
+

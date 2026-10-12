@@ -23,7 +23,7 @@ from .stage_1.heuristics import run_heuristics
 from .stage_2.embedding import classify as embedding_classify
 from .stage_3.threshold import check_confidence
 from .stage_4.policy import check_policy, PolicyVerdict
-from .stage_5.llm_judge import judge as llm_judge, GEMINI_BASE_URL, GEMINI_MODEL
+from .stage_5.llm_judge import judge as llm_judge, JUDGE_BASE_URL, JUDGE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,8 @@ def run(
     allowed_sources: Optional[Set[str]] = None,
     min_trust_score: float = 0.0,
     llm_api_key: Optional[str] = None,
-    llm_base_url: str = GEMINI_BASE_URL,
-    llm_model: str = GEMINI_MODEL,
+    llm_base_url: str = JUDGE_BASE_URL,
+    llm_model: str = JUDGE_MODEL,
 ) -> ClassificationResult:
     """
     Run the full 5-stage memory classification pipeline.
