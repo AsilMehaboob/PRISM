@@ -2,6 +2,8 @@ import logging
 import re
 from typing import Dict, Any
 
+from ..normalize import clean, obfuscation_flags
+
 SENSITIVE_PATTERNS = {
     "credit_card": re.compile(r'\b(?:\d[ -]*?){13,16}\b'), 
     "api_key": re.compile(r'(?i)(?:api[_-]?key|secret|token|sk-[a-zA-Z0-9]{32,})'), 
@@ -76,7 +78,9 @@ PERMANENT_FACT_EXCEPTIONS = [
     r"\bi live in\b",
 ]
 
-def detect_sensitive_patterns(content: str) -> bool:
+def detect_sensitive_patterns(content: str, harden: bool = True) -> bool:
+    if harden:
+        content = clean(content)  # invisible characters must not split a secret
     for pattern_name, regex in SENSITIVE_PATTERNS.items():
         if regex.search(content):
             logging.debug(f"Sensitive Pattern Detected: {pattern_name}")
@@ -110,7 +114,7 @@ def detect_temporal_patterns(content: str) -> bool:
         
     return False
 
-def run_heuristics(content: str, metadata: Dict[str, Any]) -> bool:
+def run_heuristics(content: str, metadata: Dict[str, Any], harden: bool = True) -> bool:
     if not content or not content.strip():
         logging.debug("Heuristics: Rejected - Text is empty")
         return False
@@ -139,7 +143,13 @@ def run_heuristics(content: str, metadata: Dict[str, Any]) -> bool:
         logging.debug("Heuristics: Rejected - Invalid UTF-8 encoding")
         return False
 
-    if detect_sensitive_patterns(content):
+    if harden:
+        flags = obfuscation_flags(content)
+        if flags:
+            logging.debug(f"Heuristics: Rejected - Obfuscated text ({', '.join(flags)})")
+            return False
+
+    if detect_sensitive_patterns(content, harden):
         logging.debug("Heuristics: Rejected - Contains sensitive patterns")
         return False
 

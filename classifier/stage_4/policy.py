@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional, Set
 
+from ..normalize import variants
+
 logger = logging.getLogger(__name__)
 
 class PolicyVerdict(Enum):
@@ -77,10 +79,16 @@ _AMBIGUOUS: list[re.Pattern] = [
         re.IGNORECASE,
     ),
     re.compile(
-        r'\b(override|bypass|ignore|disable|circumvent)\b.{0,20}'
-        r'\b(rule|policy|filter|check|restriction|safety|guard)\b',
+        r'\b(override|bypass|ignore|disregard|forget|disable|circumvent|skip|turn off)\b.{0,30}'
+        r'\b(rule|policy|filter|check|restriction|safety|guard|guideline|instruction|confirmation|verification)s?\b',
         re.IGNORECASE,
     ),
+    re.compile(
+        r'\b(ignore|disregard|forget|override)\b.{0,20}\b(previous|prior|earlier|above|all)\b.{0,20}'
+        r'\b(instruction|rule|guideline|prompt)s?\b',
+        re.IGNORECASE,
+    ),
+    re.compile(r'\b(developer|debug|admin|god|dan)\s+mode\b', re.IGNORECASE),
     re.compile(r'\b(jailbreak|prompt.?inject|system.?prompt|ignore previous)\b', re.IGNORECASE),
 ]
 
@@ -96,6 +104,7 @@ def check_policy(
     tier: str,
     allowed_sources: Optional[Set[str]] = None,
     min_trust_score: float = 0.0,
+    harden: bool = True,
 ) -> PolicyResult:
     """
     Run the Policy and Safety Gate against a candidate memory.
@@ -141,8 +150,11 @@ def check_policy(
             reason=f"Content is too short for {tier} tier (minimum {min_len} characters)",
         )
 
+    # Hardened mode also matches against de-obfuscated copies of the text.
+    texts = variants(content) if harden else [content]
+
     for pattern in _PROHIBITED:
-        if pattern.search(content):
+        if any(pattern.search(t) for t in texts):
             logger.warning("Stage 4 | REJECT prohibited content matched pattern=%s", pattern.pattern[:60])
             return PolicyResult(
                 verdict=PolicyVerdict.REJECT,
@@ -150,7 +162,7 @@ def check_policy(
             )
 
     for pattern in _AMBIGUOUS:
-        if pattern.search(content):
+        if any(pattern.search(t) for t in texts):
             logger.info("Stage 4 | AMBIGUOUS matched pattern=%s", pattern.pattern[:60])
             return PolicyResult(
                 verdict=PolicyVerdict.AMBIGUOUS,

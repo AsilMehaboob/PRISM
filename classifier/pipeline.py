@@ -19,6 +19,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Set
 
+from .normalize import suspicion_flags
 from .stage_1.heuristics import run_heuristics
 from .stage_2.embedding import classify as embedding_classify
 from .stage_3.threshold import check_confidence
@@ -55,19 +56,41 @@ class ClassificationResult:
     """Tier originally chosen, when a safety cap lowered it (else None)."""
 
 
-def cap_tier(tier: str, metadata: Dict[str, Any], longterm_sources: Optional[Set[str]]):
+def cap_tier(
+    tier: str,
+    metadata: Dict[str, Any],
+    longterm_sources: Optional[Set[str]],
+    content: str = "",
+    ambiguous: bool = False,
+    harden: bool = True,
+):
     """
-    Trust cap: LONGTERM is only available to trusted sources.
+    Safety caps that lower LONGTERM to SESSION. They run after the LLM judge,
+    so the judge can never promote something these rules held back.
+
+    * untrusted source     - only trusted sources may write permanent memory
+    * ambiguous content    - policy flagged it (injection-like phrasing)
+    * suspicious content   - URL / e-mail / IP / shell / encoded payload
 
     Returns ``(tier, capped_from, note)``. ``longterm_sources=None`` disables
-    the cap (legacy behaviour, kept for ablation).
+    the source cap and ``harden=False`` the other two (legacy, for ablation).
     """
-    if longterm_sources is None or tier != "LONGTERM":
+    if tier != "LONGTERM":
         return tier, None, ""
+    reasons = []
     source = str(metadata.get("source", "")).strip().lower()
-    if source in longterm_sources:
+    if longterm_sources is not None and source not in longterm_sources:
+        reasons.append(f"source {source!r} is not trusted for long-term memory")
+    if harden and ambiguous:
+        reasons.append("policy flagged the content as ambiguous")
+    if harden:
+        flags = suspicion_flags(content)
+        if flags:
+            reasons.append("suspicious content (" + ", ".join(flags) + ")")
+    if not reasons:
         return tier, None, ""
-    return "SESSION", "LONGTERM", f"; capped LONGTERM->SESSION (source {source!r} is not trusted for long-term memory)"
+    return "SESSION", "LONGTERM", "; capped LONGTERM->SESSION: " + "; ".join(reasons)
+
 
 def run(
     content: str,
@@ -76,6 +99,7 @@ def run(
     allowed_sources: Optional[Set[str]] = None,
     min_trust_score: float = 0.0,
     longterm_sources: Optional[Set[str]] = DEFAULT_LONGTERM_SOURCES,
+    harden: bool = True,
     llm_api_key: Optional[str] = None,
     llm_base_url: str = JUDGE_BASE_URL,
     llm_model: str = JUDGE_MODEL,
@@ -95,6 +119,8 @@ def run(
         min_trust_score:      Stage 4 minimum trust score (0–1).
         longterm_sources:     Sources allowed to reach LONGTERM; others are capped at
                               SESSION. ``None`` disables the cap.
+        harden:               Normalise text before the safety patterns and cap
+                              ambiguous/suspicious content at SESSION.
         llm_api_key:          OpenAI-compatible key (falls back to OPENROUTER_API_KEY env var).
         llm_base_url:         Chat completions base URL for Stage 5.
         llm_model:            Model name for Stage 5.
@@ -103,7 +129,7 @@ def run(
         :class:`ClassificationResult`
     """
 
-    if not run_heuristics(content, metadata):
+    if not run_heuristics(content, metadata, harden=harden):
         logger.info("Pipeline | REJECTED at Stage 1")
         return ClassificationResult(
             passed=False,
@@ -126,7 +152,9 @@ def run(
         tier=candidate_tier,
         allowed_sources=allowed_sources,
         min_trust_score=min_trust_score,
+        harden=harden,
     )
+    ambiguous = policy.verdict == PolicyVerdict.AMBIGUOUS
 
     if policy.verdict == PolicyVerdict.REJECT:
         logger.info("Pipeline | REJECTED at Stage 4: %s", policy.reason)
@@ -141,7 +169,7 @@ def run(
 
     if policy.verdict == PolicyVerdict.PASS and is_confident:
         
-        tier, capped_from, note = cap_tier(top_tier, metadata, longterm_sources)
+        tier, capped_from, note = cap_tier(top_tier, metadata, longterm_sources, content, ambiguous, harden)
         logger.info("Pipeline | PASSED Stage 4 + confident → Final Decision tier=%s", tier)
         return ClassificationResult(
             passed=True,
@@ -173,7 +201,7 @@ def run(
         model=llm_model,
     )
 
-    tier, capped_from, note = cap_tier(tier, metadata, longterm_sources)
+    tier, capped_from, note = cap_tier(tier, metadata, longterm_sources, content, ambiguous, harden)
     logger.info("Pipeline | Stage 5 Final Decision → tier=%s confidence=%.3f", tier, confidence)
     return ClassificationResult(
         passed=True,

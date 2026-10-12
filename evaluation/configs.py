@@ -25,6 +25,7 @@ class Outcome:
     tier: Optional[str]      # None when rejected
     stage: int               # last stage reached
     confident: Optional[bool] = None
+    ambiguous: bool = False
 
 
 def flat_baseline(content: str, meta: Dict[str, Any], **_) -> Outcome:
@@ -40,13 +41,14 @@ def staged(
     s4: bool = True,
     s5: bool = True,
     trust_cap: bool = True,
+    harden: bool = True,
     threshold: float = 0.65,
     api_key: Optional[str] = None,
 ) -> Outcome:
     lt_sources = DEFAULT_LONGTERM_SOURCES if trust_cap else None
-    out = _staged(content, meta, s1=s1, s4=s4, s5=s5, threshold=threshold, api_key=api_key)
+    out = _staged(content, meta, s1=s1, s4=s4, s5=s5, harden=harden, threshold=threshold, api_key=api_key)
     if out.passed and out.tier:
-        out.tier = cap_tier(out.tier, meta, lt_sources)[0]
+        out.tier = cap_tier(out.tier, meta, lt_sources, content, out.ambiguous, harden)[0]
     return out
 
 
@@ -57,10 +59,11 @@ def _staged(
     s1: bool,
     s4: bool,
     s5: bool,
+    harden: bool,
     threshold: float,
     api_key: Optional[str],
 ) -> Outcome:
-    if s1 and not run_heuristics(content, meta):
+    if s1 and not run_heuristics(content, meta, harden=harden):
         return Outcome(False, None, 1)
 
     scores = embed_classify(content, meta)
@@ -68,20 +71,22 @@ def _staged(
     candidate = top or "SCRATCH"
 
     verdict = PolicyVerdict.PASS
+    ambiguous = False
     if s4:
-        verdict = check_policy(content=content, metadata=meta, tier=candidate).verdict
+        verdict = check_policy(content=content, metadata=meta, tier=candidate, harden=harden).verdict
+        ambiguous = verdict == PolicyVerdict.AMBIGUOUS
         if verdict == PolicyVerdict.REJECT:
             return Outcome(False, None, 4, confident)
         if verdict == PolicyVerdict.PASS and confident:
-            return Outcome(True, top, 4, confident)
+            return Outcome(True, top, 4, confident, ambiguous)
     elif confident:
         return Outcome(True, top, 3, confident)
 
     if not s5:
-        return Outcome(True, top, 3, confident)
+        return Outcome(True, top, 3, confident, ambiguous)
 
     tier, _, _ = llm_judge(content, meta, scores, api_key=api_key)
-    return Outcome(True, tier, 5, confident)
+    return Outcome(True, tier, 5, confident, ambiguous)
 
 
 def production(content: str, meta: Dict[str, Any], *, threshold: float = 0.65,
@@ -93,9 +98,10 @@ def production(content: str, meta: Dict[str, Any], *, threshold: float = 0.65,
 # name -> callable(content, meta, threshold=..., api_key=...)
 CONFIGS = {
     "A flat memory (baseline)": flat_baseline,
-    "B stage2 only": lambda c, m, **k: staged(c, m, s1=False, s4=False, s5=False, trust_cap=False, **k),
-    "C stage1+2": lambda c, m, **k: staged(c, m, s1=True, s4=False, s5=False, trust_cap=False, **k),
-    "D stage1+2+4 (no LLM judge)": lambda c, m, **k: staged(c, m, s1=True, s4=True, s5=False, trust_cap=False, **k),
-    "E1 full pipeline, no trust cap (legacy)": lambda c, m, **k: production(c, m, longterm_sources=None, **k),
+    "B stage2 only": lambda c, m, **k: staged(c, m, s1=False, s4=False, s5=False, trust_cap=False, harden=False, **k),
+    "C stage1+2": lambda c, m, **k: staged(c, m, s1=True, s4=False, s5=False, trust_cap=False, harden=False, **k),
+    "D stage1+2+4 (no LLM judge)": lambda c, m, **k: staged(c, m, s1=True, s4=True, s5=False, trust_cap=False, harden=False, **k),
+    "E1 legacy: no trust cap, no hardening": lambda c, m, **k: production(c, m, longterm_sources=None, harden=False, **k),
+    "E2 trust cap only": lambda c, m, **k: production(c, m, harden=False, **k),
     "F full pipeline": production,
 }
