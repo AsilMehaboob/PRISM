@@ -164,7 +164,7 @@ def main() -> int:
 
     # Ablation fidelity: re-composed stages must match the production pipeline.
     ref = [(o.passed, o.tier) for _, o, _ in all_rows[prod]]
-    staged_rows = evaluate(lambda c, m, **k: configs.staged(c, m, **k), items, 0.65, api_key)
+    staged_rows = evaluate(lambda c, m, **k: configs.staged(c, m, poison=True, **k), items, 0.65, api_key)
     mism = sum(1 for a, (_, o, _) in zip(ref, staged_rows) if a != (o.passed, o.tier))
     lines += ["", f"Ablation fidelity: re-composed full pipeline vs `classifier.pipeline.run` differ on **{mism}/{len(items)}** items "
               f"(expected 0{'' if not args.live else ' unless the live judge is non-deterministic'}).", ""]

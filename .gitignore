@@ -212,3 +212,5 @@ chroma_data/
 centroids.json
 # generated embedding centroid caches
 classifier/stage_2/centroids_*.json
+
+classifier/poison_protos_*.json

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Set
 
 from .normalize import suspicion_flags
+from . import poison as poison_detector
 from .stage_1.heuristics import run_heuristics
 from .stage_2.embedding import classify as embedding_classify
 from .stage_3.threshold import check_confidence
@@ -55,6 +56,9 @@ class ClassificationResult:
     capped_from: Optional[str] = None
     """Tier originally chosen, when a safety cap lowered it (else None)."""
 
+    poison_score: Optional[float] = None
+    """Poison detector score (0-1): likelihood the text instructs the agent."""
+
 
 def cap_tier(
     tier: str,
@@ -63,6 +67,8 @@ def cap_tier(
     content: str = "",
     ambiguous: bool = False,
     harden: bool = True,
+    poison_score: Optional[float] = None,
+    poison_cap: float = poison_detector.DEFAULT_CAP_THRESHOLD,
 ):
     """
     Safety caps that lower LONGTERM to SESSION. They run after the LLM judge,
@@ -71,6 +77,7 @@ def cap_tier(
     * untrusted source     - only trusted sources may write permanent memory
     * ambiguous content    - policy flagged it (injection-like phrasing)
     * suspicious content   - URL / e-mail / IP / shell / encoded payload
+    * poison score         - the text reads like an instruction to the agent
 
     Returns ``(tier, capped_from, note)``. ``longterm_sources=None`` disables
     the source cap and ``harden=False`` the other two (legacy, for ablation).
@@ -87,6 +94,8 @@ def cap_tier(
         flags = suspicion_flags(content)
         if flags:
             reasons.append("suspicious content (" + ", ".join(flags) + ")")
+    if poison_score is not None and poison_score >= poison_cap:
+        reasons.append(f"reads like an instruction to the agent (poison score {poison_score:.2f})")
     if not reasons:
         return tier, None, ""
     return "SESSION", "LONGTERM", "; capped LONGTERM->SESSION: " + "; ".join(reasons)
@@ -100,6 +109,9 @@ def run(
     min_trust_score: float = 0.0,
     longterm_sources: Optional[Set[str]] = DEFAULT_LONGTERM_SOURCES,
     harden: bool = True,
+    poison: bool = True,
+    poison_cap: float = poison_detector.DEFAULT_CAP_THRESHOLD,
+    poison_reject: float = poison_detector.DEFAULT_REJECT_THRESHOLD,
     llm_api_key: Optional[str] = None,
     llm_base_url: str = JUDGE_BASE_URL,
     llm_model: str = JUDGE_MODEL,
@@ -121,6 +133,8 @@ def run(
                               SESSION. ``None`` disables the cap.
         harden:               Normalise text before the safety patterns and cap
                               ambiguous/suspicious content at SESSION.
+        poison:               Run the poison detector: a score >= poison_cap keeps the
+                              item out of LONGTERM, >= poison_reject drops it entirely.
         llm_api_key:          OpenAI-compatible key (falls back to OPENROUTER_API_KEY env var).
         llm_base_url:         Chat completions base URL for Stage 5.
         llm_model:            Model name for Stage 5.
@@ -141,6 +155,20 @@ def run(
 
     scores = embedding_classify(content, metadata)
     logger.info("Pipeline | Stage 2 scores: %s", {k: f"{v:.3f}" for k, v in scores.items()})
+
+    pz = poison_detector.score(content, metadata) if poison else None
+    pz_score = pz.score if pz else None
+    if pz and pz.score >= poison_reject:
+        logger.info("Pipeline | REJECTED by poison detector (score=%.2f, %s)", pz.score, pz.features)
+        return ClassificationResult(
+            passed=False,
+            tier=None,
+            confidence=pz.score,
+            stage_reached=2,
+            reasoning=f"Rejected by poison detector: reads like an instruction to the agent (score={pz.score:.2f}, features={pz.features})",
+            stage2_scores=scores,
+            poison_score=pz.score,
+        )
 
     top_tier, is_confident = check_confidence(scores, threshold=confidence_threshold)
 
@@ -169,7 +197,7 @@ def run(
 
     if policy.verdict == PolicyVerdict.PASS and is_confident:
         
-        tier, capped_from, note = cap_tier(top_tier, metadata, longterm_sources, content, ambiguous, harden)
+        tier, capped_from, note = cap_tier(top_tier, metadata, longterm_sources, content, ambiguous, harden, pz_score, poison_cap)
         logger.info("Pipeline | PASSED Stage 4 + confident → Final Decision tier=%s", tier)
         return ClassificationResult(
             passed=True,
@@ -182,6 +210,7 @@ def run(
             ),
             stage2_scores=scores,
             capped_from=capped_from,
+            poison_score=pz_score,
         )
 
     if policy.verdict == PolicyVerdict.AMBIGUOUS:
@@ -201,7 +230,7 @@ def run(
         model=llm_model,
     )
 
-    tier, capped_from, note = cap_tier(tier, metadata, longterm_sources, content, ambiguous, harden)
+    tier, capped_from, note = cap_tier(tier, metadata, longterm_sources, content, ambiguous, harden, pz_score, poison_cap)
     logger.info("Pipeline | Stage 5 Final Decision → tier=%s confidence=%.3f", tier, confidence)
     return ClassificationResult(
         passed=True,
@@ -211,4 +240,5 @@ def run(
         reasoning=reasoning + note,
         stage2_scores=scores,
         capped_from=capped_from,
+        poison_score=pz_score,
     )
