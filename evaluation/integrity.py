@@ -11,11 +11,19 @@ from typing import Callable, List, Tuple
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+import hashlib
+import json
+import os
+import tempfile
+
+from memory.audit import AuditLog
 from memory.crypto import (
-    generate_checksum,
+    build_keyring,
+    session_key,
     sign_item,
     sign_session_item,
     verify_item,
+    verify_item_keyring,
     verify_session_item,
 )
 from memory.longterm import LongTermMemory
@@ -41,7 +49,8 @@ class _FakeCollection:
 
 def _store(pub) -> LongTermMemory:
     s = LongTermMemory.__new__(LongTermMemory)  # skip Chroma client setup
-    s._agent_public_key = pub
+    s._keyring = build_keyring([pub] if not isinstance(pub, list) else pub)
+    s._audit = None
     s._collection = _FakeCollection()
     return s
 
@@ -146,16 +155,65 @@ def run() -> List[Tuple[str, bool, str]]:
     store._collection.rows[it.id] = (d + " [edited]", m)
     check("retrieval drops a stored row edited after signing", it.id not in {x.id for x in store.get_all_verified()})
 
-    # Documented limitation: session tier uses an unkeyed checksum.
-    s = _item("session note", tier="SESSION")
-    sign_session_item(s)
-    check("session checksum detects accidental corruption",
-          not verify_session_item(s.model_copy(update={"content": "changed"})))
-    s2 = _item("attacker text", tier="SESSION")
-    s2.signature = generate_checksum(s2)  # attacker needs no secret
-    check(
-        "session tier resists deliberate forgery",
-        not verify_session_item(s2),
-        note="LIMITATION: Adler-32 is unkeyed; anyone can forge it. Session tier relies on TTL, not integrity.",
-    )
+    # ---- binding: a valid signature must not be reusable in a different context
+    for field, value in (("tier", "SESSION"), ("user_id", "u2"), ("source", "tool")):
+        moved = it.model_copy(update={field: value})
+        check(f"signature is bound to {field}", not verify_item(moved, pub))
+
+    # ---- key rotation
+    new_priv = Ed25519PrivateKey.generate()
+    old_signed = sign_item(_item("signed before rotation"), priv)
+    new_signed = sign_item(_item("signed after rotation"), new_priv)
+    rotated = _store([new_priv.public_key(), pub])  # new key current, old key retired
+    check("rotation: old items still verify via retired key", verify_item_keyring(old_signed, rotated._keyring))
+    check("rotation: new items verify via current key", verify_item_keyring(new_signed, rotated._keyring))
+    only_new = _store([new_priv.public_key()])
+    check("rotation: item from a removed key is rejected", not verify_item_keyring(old_signed, only_new._keyring))
+    unknown = old_signed.model_copy(update={"key_id": "deadbeefdeadbeef"})
+    check("rotation: item naming an unknown key id is rejected", not verify_item_keyring(unknown, rotated._keyring))
+
+    # ---- session tier: keyed HMAC
+    os.environ["AGENT_PRIVATE_KEY"] = priv.private_bytes_raw().hex()
+    skey = session_key()
+    sess = _item("session note", tier="SESSION")
+    sess.expires_at = datetime.utcnow() + timedelta(hours=1)
+    sign_session_item(sess)
+    check("session MAC verifies", verify_session_item(sess))
+    check("session MAC detects content change", not verify_session_item(sess.model_copy(update={"content": "changed"})))
+    check("session MAC detects TTL extension",
+          not verify_session_item(sess.model_copy(update={"expires_at": sess.expires_at + timedelta(days=365)})))
+    check("session MAC detects user change", not verify_session_item(sess.model_copy(update={"user_id": "u2"})))
+    forged = _item("attacker text", tier="SESSION")
+    forged.expires_at = sess.expires_at
+    forged.signature = hashlib.sha256(forged.content.encode()).hexdigest()  # attacker has no key
+    check("session tier resists forgery without the key", not verify_session_item(forged))
+    import zlib
+    forged.signature = f"{zlib.adler32(forged.content.encode()):x}"
+    check("session tier rejects the old unkeyed Adler-32 checksum", not verify_session_item(forged))
+    check("session MAC from another key is rejected", not verify_session_item(sess, key=os.urandom(32)))
+    _ = skey
+
+    # ---- audit log
+    with tempfile.TemporaryDirectory() as d:
+        log = AuditLog(os.path.join(d, "audit.jsonl"))
+        for i in range(4):
+            log.record("add", sign_item(_item(f"fact {i}"), priv))
+        check("audit chain verifies when untouched", log.verify() == (True, None))
+        lines = open(log.path, encoding="utf-8").read().splitlines()
+
+        def rewrite(new_lines):
+            with open(log.path, "w", encoding="utf-8") as f:
+                f.write(os.linesep.join(new_lines) + os.linesep)
+
+        rec = json.loads(lines[1]); rec["source"] = "user"; rec["user_id"] = "someone-else"
+        rewrite([lines[0], json.dumps(rec, sort_keys=True), *lines[2:]])
+        check("audit chain detects an edited record", log.verify() == (False, 1))
+        rewrite([lines[0], *lines[2:]])
+        check("audit chain detects a deleted record", log.verify()[0] is False)
+        rewrite([lines[1], lines[0], *lines[2:]])
+        check("audit chain detects reordering", log.verify()[0] is False)
+        rewrite(lines)
+        check("audit chain verifies after restoring the log", log.verify() == (True, None))
+        check("audit log stores a content hash, not the content",
+              "fact 0" not in open(log.path, encoding="utf-8").read())
     return out

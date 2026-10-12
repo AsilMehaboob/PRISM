@@ -4,6 +4,7 @@ from datetime import datetime
 import chromadb
 from chromadb.config import Settings
 from .models import MemoryItem
+from .audit import AuditLog
 from .crypto import verify_session_item
 import logging
 
@@ -27,6 +28,7 @@ class SessionMemory:
             )
         
         self._collection = self._client.get_or_create_collection("session_memory")
+        self._audit = AuditLog.default()
         logging.debug("SessionMemory initialized")
 
     def add(self, item: MemoryItem):
@@ -52,7 +54,9 @@ class SessionMemory:
             ids=[item.id], documents=[item.content], metadatas=[metadata]
         )
 
-        logging.debug(f"Added session item: {item}")
+        if self._audit:
+            self._audit.record("add", item)
+        logging.debug(f"Added session item: {item.id}")
 
     def get_active(self) -> List[MemoryItem]:
         now = datetime.utcnow()

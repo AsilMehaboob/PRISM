@@ -67,8 +67,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.00038979587028437404,
-        "lat_p95_ms": 0.0005000001692678779
+        "lat_mean_ms": 0.0004693877562370902,
+        "lat_p95_ms": 0.0006999998731771484
       },
       "heldout": {
         "benign_n": 28,
@@ -135,8 +135,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.00031607146411261056,
-        "lat_p95_ms": 0.0004000003173132427
+        "lat_mean_ms": 0.0003875000597223074,
+        "lat_p95_ms": 0.0005000001692678779
       }
     },
     "B stage2 only": {
@@ -206,8 +206,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.008198979592597593,
-        "lat_p95_ms": 0.00940000063565094
+        "lat_mean_ms": 0.008818367330938914,
+        "lat_p95_ms": 0.0106999996205559
       },
       "heldout": {
         "benign_n": 28,
@@ -275,8 +275,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.0072749999325034355,
-        "lat_p95_ms": 0.007999999979801942
+        "lat_mean_ms": 0.0074821428078004305,
+        "lat_p95_ms": 0.007900000127847306
       }
     },
     "C stage1+2": {
@@ -347,8 +347,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.07005918366433304,
-        "lat_p95_ms": 0.11240000003454043
+        "lat_mean_ms": 0.05720918365373758,
+        "lat_p95_ms": 0.10179999935644446
       },
       "heldout": {
         "benign_n": 28,
@@ -417,8 +417,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.07137142854065003,
-        "lat_p95_ms": 0.09620000037102727
+        "lat_mean_ms": 0.06075892857942173,
+        "lat_p95_ms": 0.08140000045386842
       }
     },
     "D stage1+2+4 (no LLM judge)": {
@@ -489,8 +489,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.09577346939722145,
-        "lat_p95_ms": 0.1449999999749707
+        "lat_mean_ms": 0.08077551024607786,
+        "lat_p95_ms": 0.11870000071212417
       },
       "heldout": {
         "benign_n": 28,
@@ -559,8 +559,8 @@
           ]
         },
         "judge_rate": 0.0,
-        "lat_mean_ms": 0.09429107144244751,
-        "lat_p95_ms": 0.13560000024881447
+        "lat_mean_ms": 0.07566607138999513,
+        "lat_p95_ms": 0.10799999927257886
       }
     },
     "E1 legacy: no trust cap, no hardening": {
@@ -631,8 +631,8 @@
           ]
         },
         "judge_rate": 0.35714285714285715,
-        "lat_mean_ms": 0.09861632648905043,
-        "lat_p95_ms": 0.15019999955256935
+        "lat_mean_ms": 0.11252755108884861,
+        "lat_p95_ms": 0.16480000067531364
       },
       "heldout": {
         "benign_n": 28,
@@ -701,8 +701,8 @@
           ]
         },
         "judge_rate": 0.3392857142857143,
-        "lat_mean_ms": 0.1014303571277456,
-        "lat_p95_ms": 0.1419000000169035
+        "lat_mean_ms": 0.08621785710667089,
+        "lat_p95_ms": 0.11280000035185367
       }
     },
     "E2 trust cap only": {
@@ -773,8 +773,8 @@
           ]
         },
         "judge_rate": 0.35714285714285715,
-        "lat_mean_ms": 0.09910714292420045,
-        "lat_p95_ms": 0.152900000102818
+        "lat_mean_ms": 0.08270408166862006,
+        "lat_p95_ms": 0.12940000033268007
       },
       "heldout": {
         "benign_n": 28,
@@ -843,8 +843,8 @@
           ]
         },
         "judge_rate": 0.3392857142857143,
-        "lat_mean_ms": 0.10988750008371946,
-        "lat_p95_ms": 0.16349999987141928
+        "lat_mean_ms": 0.08015892857266797,
+        "lat_p95_ms": 0.10490000022400636
       }
     },
     "F full pipeline": {
@@ -916,8 +916,8 @@
           ]
         },
         "judge_rate": 0.37755102040816324,
-        "lat_mean_ms": 0.19719081627750265,
-        "lat_p95_ms": 0.33849999999802094
+        "lat_mean_ms": 0.18226326534315784,
+        "lat_p95_ms": 0.2936999999292311
       },
       "heldout": {
         "benign_n": 28,
@@ -987,8 +987,8 @@
           ]
         },
         "judge_rate": 0.35714285714285715,
-        "lat_mean_ms": 0.2069357143130089,
-        "lat_p95_ms": 0.33999999959632987
+        "lat_mean_ms": 0.17980178571568622,
+        "lat_p95_ms": 0.2827000007528113
       }
     }
   },
@@ -1061,8 +1061,8 @@
         ]
       },
       "judge_rate": 0.13636363636363635,
-      "lat_mean_ms": 0.1713551948117353,
-      "lat_p95_ms": 0.27320000026520574
+      "lat_mean_ms": 0.16384285712089652,
+      "lat_p95_ms": 0.2662999995663995
     },
     "0.5": {
       "benign_n": 85,
@@ -1132,8 +1132,8 @@
         ]
       },
       "judge_rate": 0.13636363636363635,
-      "lat_mean_ms": 0.19201298699328334,
-      "lat_p95_ms": 0.32000000010157237
+      "lat_mean_ms": 0.1650370130102436,
+      "lat_p95_ms": 0.2661000007719849
     },
     "0.6": {
       "benign_n": 85,
@@ -1203,8 +1203,8 @@
         ]
       },
       "judge_rate": 0.13636363636363635,
-      "lat_mean_ms": 0.15481883111805203,
-      "lat_p95_ms": 0.25180000011459924
+      "lat_mean_ms": 0.1602253246701012,
+      "lat_p95_ms": 0.25550000009388896
     },
     "0.65": {
       "benign_n": 85,
@@ -1274,8 +1274,8 @@
         ]
       },
       "judge_rate": 0.37012987012987014,
-      "lat_mean_ms": 0.1738279220794007,
-      "lat_p95_ms": 0.309900000502239
+      "lat_mean_ms": 0.16307337662439822,
+      "lat_p95_ms": 0.29680000079679303
     },
     "0.7": {
       "benign_n": 85,
@@ -1345,8 +1345,8 @@
         ]
       },
       "judge_rate": 0.37012987012987014,
-      "lat_mean_ms": 0.1652629870442105,
-      "lat_p95_ms": 0.2967999998872983
+      "lat_mean_ms": 0.17569350650880444,
+      "lat_p95_ms": 0.30760000026930356
     },
     "0.8": {
       "benign_n": 85,
@@ -1416,8 +1416,8 @@
         ]
       },
       "judge_rate": 0.45454545454545453,
-      "lat_mean_ms": 0.16987207793915463,
-      "lat_p95_ms": 0.2764999999271822
+      "lat_mean_ms": 0.1859714285841052,
+      "lat_p95_ms": 0.29579999954876257
     },
     "0.9": {
       "benign_n": 85,
@@ -1487,8 +1487,8 @@
         ]
       },
       "judge_rate": 0.45454545454545453,
-      "lat_mean_ms": 0.16255000000219533,
-      "lat_p95_ms": 0.2673999997568899
+      "lat_mean_ms": 0.16294090913449166,
+      "lat_p95_ms": 0.2696999999898253
     }
   },
   "integrity": [
@@ -1618,14 +1618,104 @@
       "note": ""
     },
     {
-      "test": "session checksum detects accidental corruption",
+      "test": "signature is bound to tier",
       "pass": true,
       "note": ""
     },
     {
-      "test": "session tier resists deliberate forgery",
-      "pass": false,
-      "note": "LIMITATION: Adler-32 is unkeyed; anyone can forge it. Session tier relies on TTL, not integrity."
+      "test": "signature is bound to user_id",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "signature is bound to source",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "rotation: old items still verify via retired key",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "rotation: new items verify via current key",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "rotation: item from a removed key is rejected",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "rotation: item naming an unknown key id is rejected",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "session MAC verifies",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "session MAC detects content change",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "session MAC detects TTL extension",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "session MAC detects user change",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "session tier resists forgery without the key",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "session tier rejects the old unkeyed Adler-32 checksum",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "session MAC from another key is rejected",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "audit chain verifies when untouched",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "audit chain detects an edited record",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "audit chain detects a deleted record",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "audit chain detects reordering",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "audit chain verifies after restoring the log",
+      "pass": true,
+      "note": ""
+    },
+    {
+      "test": "audit log stores a content hash, not the content",
+      "pass": true,
+      "note": ""
     }
   ],
   "ablation_mismatch": 0

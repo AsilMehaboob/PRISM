@@ -91,5 +91,23 @@ Per-tier F1: SCRATCH=0.96, SESSION=0.68, LONGTERM=0.84
 | store accepts a validly signed item | PASS |
 | retrieval drops rows injected straight into the DB | PASS |
 | retrieval drops a stored row edited after signing | PASS |
-| session checksum detects accidental corruption | PASS |
-| session tier resists deliberate forgery | FAIL - LIMITATION: Adler-32 is unkeyed; anyone can forge it. Session tier relies on TTL, not integrity. |
+| signature is bound to tier | PASS |
+| signature is bound to user_id | PASS |
+| signature is bound to source | PASS |
+| rotation: old items still verify via retired key | PASS |
+| rotation: new items verify via current key | PASS |
+| rotation: item from a removed key is rejected | PASS |
+| rotation: item naming an unknown key id is rejected | PASS |
+| session MAC verifies | PASS |
+| session MAC detects content change | PASS |
+| session MAC detects TTL extension | PASS |
+| session MAC detects user change | PASS |
+| session tier resists forgery without the key | PASS |
+| session tier rejects the old unkeyed Adler-32 checksum | PASS |
+| session MAC from another key is rejected | PASS |
+| audit chain verifies when untouched | PASS |
+| audit chain detects an edited record | PASS |
+| audit chain detects a deleted record | PASS |
+| audit chain detects reordering | PASS |
+| audit chain verifies after restoring the log | PASS |
+| audit log stores a content hash, not the content | PASS |

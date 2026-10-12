@@ -12,6 +12,7 @@ class MemoryItem(BaseModel):
     signature: Optional[str] = None
     expires_at: Optional[datetime] = None
     user_id: Optional[str] = None
+    key_id: Optional[str] = None  # id of the long-term signing key (rotation)
     source: str = "agent"  # user | system | agent | tool | web ... (provenance of the content)
 
     class Config:

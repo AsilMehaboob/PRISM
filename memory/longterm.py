@@ -4,14 +4,19 @@ from chromadb.config import Settings
 from datetime import datetime
 from typing import Dict, List
 from .models import MemoryItem
-from .crypto import verify_item
+from .audit import AuditLog
+from .crypto import build_keyring, load_retired_public_keys, verify_item_keyring
 from classifier.stage_4.policy import DEFAULT_LONGTERM_SOURCES
 import logging
 
 
 class LongTermMemory:
-    def __init__(self, agent_public_key):
-        self._agent_public_key = agent_public_key
+    def __init__(self, agent_public_key, retired_public_keys=None, audit: "AuditLog | None" = None):
+        # Items name the key that signed them (key_id); retired keys keep old items readable
+        # after a rotation, while new items are signed with the current key only.
+        retired = load_retired_public_keys() if retired_public_keys is None else retired_public_keys
+        self._keyring = build_keyring([agent_public_key, *retired])
+        self._audit = audit if audit is not None else AuditLog.default()
         
         chroma_host = os.getenv("CHROMA_HOST")
         chroma_port = os.getenv("CHROMA_PORT", "8000")
@@ -42,7 +47,7 @@ class LongTermMemory:
         if item.signature is None:
             raise ValueError("Unsigned memory cannot enter long-term storage")
 
-        if not verify_item(item, self._agent_public_key):
+        if not verify_item_keyring(item, self._keyring):
             raise ValueError("Signature verification failed")
 
         metadata = {
@@ -51,11 +56,14 @@ class LongTermMemory:
             "signature": item.signature,
             "user_id": item.user_id,
             "source": item.source,
+            "key_id": item.key_id,
         }
 
         self._collection.upsert(
             ids=[item.id], documents=[item.content], metadatas=[metadata]
         )
+        if self._audit:
+            self._audit.record("add", item)
         logging.debug(f"Added long-term item: {item.id}")
 
 
@@ -68,7 +76,7 @@ class LongTermMemory:
                 metadata = results["metadatas"][i]
                 content = results["documents"][i]
                 item = MemoryItem.model_validate({**metadata, "id": m_id, "content": content})
-                if verify_item(item, self._agent_public_key):
+                if verify_item_keyring(item, self._keyring):
                     verified.append(item)
         return verified
 
@@ -83,7 +91,7 @@ class LongTermMemory:
                 content = results["documents"][0][i]
                 item = MemoryItem.model_validate({**metadata, "id": m_id, "content": content})
 
-                if verify_item(item, self._agent_public_key):
+                if verify_item_keyring(item, self._keyring):
                     verified.append(item)
 
         return verified
