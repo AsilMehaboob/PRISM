@@ -10,7 +10,8 @@ cannot silently drift from the production code.
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from classifier.pipeline import run as pipeline_run
+from classifier.pipeline import cap_tier, run as pipeline_run
+from classifier.stage_4.policy import DEFAULT_LONGTERM_SOURCES
 from classifier.stage_1.heuristics import run_heuristics
 from classifier.stage_2.embedding import classify as embed_classify
 from classifier.stage_3.threshold import check_confidence
@@ -38,8 +39,26 @@ def staged(
     s1: bool = True,
     s4: bool = True,
     s5: bool = True,
+    trust_cap: bool = True,
     threshold: float = 0.65,
     api_key: Optional[str] = None,
+) -> Outcome:
+    lt_sources = DEFAULT_LONGTERM_SOURCES if trust_cap else None
+    out = _staged(content, meta, s1=s1, s4=s4, s5=s5, threshold=threshold, api_key=api_key)
+    if out.passed and out.tier:
+        out.tier = cap_tier(out.tier, meta, lt_sources)[0]
+    return out
+
+
+def _staged(
+    content: str,
+    meta: Dict[str, Any],
+    *,
+    s1: bool,
+    s4: bool,
+    s5: bool,
+    threshold: float,
+    api_key: Optional[str],
 ) -> Outcome:
     if s1 and not run_heuristics(content, meta):
         return Outcome(False, None, 1)
@@ -66,16 +85,17 @@ def staged(
 
 
 def production(content: str, meta: Dict[str, Any], *, threshold: float = 0.65,
-               api_key: Optional[str] = None, **_) -> Outcome:
-    r = pipeline_run(content, meta, confidence_threshold=threshold, llm_api_key=api_key)
+               api_key: Optional[str] = None, **kw) -> Outcome:
+    r = pipeline_run(content, meta, confidence_threshold=threshold, llm_api_key=api_key, **kw)
     return Outcome(r.passed, r.tier if r.passed else None, r.stage_reached)
 
 
 # name -> callable(content, meta, threshold=..., api_key=...)
 CONFIGS = {
     "A flat memory (baseline)": flat_baseline,
-    "B stage2 only": lambda c, m, **k: staged(c, m, s1=False, s4=False, s5=False, **k),
-    "C stage1+2": lambda c, m, **k: staged(c, m, s1=True, s4=False, s5=False, **k),
-    "D stage1+2+4 (no LLM judge)": lambda c, m, **k: staged(c, m, s1=True, s4=True, s5=False, **k),
-    "E full pipeline": production,
+    "B stage2 only": lambda c, m, **k: staged(c, m, s1=False, s4=False, s5=False, trust_cap=False, **k),
+    "C stage1+2": lambda c, m, **k: staged(c, m, s1=True, s4=False, s5=False, trust_cap=False, **k),
+    "D stage1+2+4 (no LLM judge)": lambda c, m, **k: staged(c, m, s1=True, s4=True, s5=False, trust_cap=False, **k),
+    "E1 full pipeline, no trust cap (legacy)": lambda c, m, **k: production(c, m, longterm_sources=None, **k),
+    "F full pipeline": production,
 }

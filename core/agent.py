@@ -247,8 +247,46 @@ def execute_tools_node(state: AgentState) -> dict:
     return {"messages": tool_outputs}
 
 
+def _persist(content: str, source: str, user_id: str) -> None:
+    """Classify one piece of content and write it to the tier the pipeline chose."""
+    memory_item = MemoryItem(
+        content=content,
+        tier="SCRATCH",
+        user_id=user_id,
+        source=source,
+    )
+
+    classifier(memory_item)
+
+    if memory_item.tier == "SESSION":
+        from datetime import timedelta
+
+        memory_item.expires_at = datetime.utcnow() + timedelta(hours=168)
+
+    if private_key:
+        if memory_item.tier == "LONGTERM":
+            sign_item(memory_item, private_key)
+        elif memory_item.tier == "SESSION":
+            sign_session_item(memory_item)
+
+    try:
+        if memory_item.tier == "LONGTERM" and longterm_memory:
+            longterm_memory.add(memory_item)
+        elif memory_item.tier == "SESSION":
+            session_memory.add(memory_item)
+        elif memory_item.tier == "SCRATCH":
+            scratch_memory.add(memory_item)
+    except Exception as e:
+        logger.error(f"Failed to store memory: {e}")
+
+
 def store_to_memory_node(state: AgentState) -> dict:
-    """Store tool outputs OR final AI answers to memory tiers."""
+    """Store tool outputs and final AI answers; on the final answer, also the user's message.
+
+    Provenance matters: tool output and model-generated text are never trusted for
+    long-term memory (see classifier.stage_4.policy.DEFAULT_LONGTERM_SOURCES).
+    Only what the user said directly can become a permanent memory.
+    """
     user_id = state["user_id"]
     last_message = state["messages"][-1]
 
@@ -257,35 +295,13 @@ def store_to_memory_node(state: AgentState) -> dict:
         last_message, "tool_calls", None
     )
 
-    if is_tool or is_final_ai:
-        memory_item = MemoryItem(
-            content=last_message.content,
-            tier="SCRATCH",
-            user_id=user_id,
-        )
-
-        classifier(memory_item)
-
-        if memory_item.tier == "SESSION":
-            from datetime import timedelta
-
-            memory_item.expires_at = datetime.utcnow() + timedelta(hours=168)
-
-        if private_key:
-            if memory_item.tier == "LONGTERM":
-                sign_item(memory_item, private_key)
-            elif memory_item.tier == "SESSION":
-                sign_session_item(memory_item)
-
-        try:
-            if memory_item.tier == "LONGTERM" and longterm_memory:
-                longterm_memory.add(memory_item)
-            elif memory_item.tier == "SESSION":
-                session_memory.add(memory_item)
-            elif memory_item.tier == "SCRATCH":
-                scratch_memory.add(memory_item)
-        except Exception as e:
-            logger.error(f"Failed to store memory: {e}")
+    if is_tool:
+        _persist(last_message.content, "tool", user_id)
+    elif is_final_ai:
+        _persist(last_message.content, "agent", user_id)
+        human = next((m for m in state["messages"] if isinstance(m, HumanMessage)), None)
+        if human is not None:
+            _persist(human.content, "user", user_id)
 
     return {}
 

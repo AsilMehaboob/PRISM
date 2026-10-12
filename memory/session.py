@@ -45,6 +45,7 @@ class SessionMemory:
             "signature": item.signature,
             "expires_at": item.expires_at.isoformat(),
             "user_id": item.user_id,
+            "source": item.source,
         }
 
         self._collection.upsert(

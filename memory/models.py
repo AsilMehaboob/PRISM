@@ -12,6 +12,7 @@ class MemoryItem(BaseModel):
     signature: Optional[str] = None
     expires_at: Optional[datetime] = None
     user_id: Optional[str] = None
+    source: str = "agent"  # user | system | agent | tool | web ... (provenance of the content)
 
     class Config:
         json_encoders = {

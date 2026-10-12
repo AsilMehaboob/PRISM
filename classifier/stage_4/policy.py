@@ -18,6 +18,11 @@ class PolicyResult:
 
 DEFAULT_ALLOWED_SOURCES: Set[str] = {"user", "agent", "system", "api", "tool"}
 
+# Only content that originates from the user or the operator may become a
+# permanent (LONGTERM) memory. Tool output, web pages and text the agent
+# generated itself can carry indirect injections, so they are capped at SESSION.
+DEFAULT_LONGTERM_SOURCES: Set[str] = {"user", "system"}
+
 _PROHIBITED: list[re.Pattern] = [
     # Violence instructions (Forward & Reverse)
     re.compile(

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, List
 from .models import MemoryItem
 from .crypto import verify_item
+from classifier.stage_4.policy import DEFAULT_LONGTERM_SOURCES
 import logging
 
 
@@ -35,6 +36,9 @@ class LongTermMemory:
         if item.tier != "LONGTERM":
             raise ValueError("Only long-term items allowed")
 
+        if item.source not in DEFAULT_LONGTERM_SOURCES:
+            raise ValueError(f"Source {item.source!r} is not trusted for long-term storage")
+
         if item.signature is None:
             raise ValueError("Unsigned memory cannot enter long-term storage")
 
@@ -46,6 +50,7 @@ class LongTermMemory:
             "created_at": item.created_at.isoformat(),
             "signature": item.signature,
             "user_id": item.user_id,
+            "source": item.source,
         }
 
         self._collection.upsert(

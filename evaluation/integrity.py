@@ -46,8 +46,8 @@ def _store(pub) -> LongTermMemory:
     return s
 
 
-def _item(content="I always prefer Python", tier="LONGTERM") -> MemoryItem:
-    return MemoryItem(content=content, tier=tier, user_id="u1")
+def _item(content="I always prefer Python", tier="LONGTERM", source="user") -> MemoryItem:
+    return MemoryItem(content=content, tier=tier, user_id="u1", source=source)
 
 
 def _raises(fn: Callable, exc=ValueError) -> bool:
@@ -96,6 +96,9 @@ def run() -> List[Tuple[str, bool, str]]:
     check("store refuses unsigned long-term item", _raises(lambda: store.add(_item())))
     check("store refuses item signed by wrong key", _raises(lambda: store.add(forged)))
     check("store refuses non-LONGTERM tier", _raises(lambda: store.add(sign_item(_item(tier="SESSION"), priv))))
+    for src in ("tool", "agent", "web"):
+        check(f"store refuses a validly signed item from untrusted source {src!r}",
+              _raises(lambda src=src: store.add(sign_item(_item(source=src), priv))))
     store.add(it)
     check("store accepts a validly signed item", len(store._collection.rows) == 1)
 

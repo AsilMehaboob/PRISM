@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def classifier(item: MemoryItem) -> None:
     metadata = {
         "user_id": item.user_id,
-        "source": "user", # Using 'user' to pass Stage 4 policy allowlist
+        "source": item.source,
     }
     
     # Run the full pipeline

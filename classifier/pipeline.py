@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional, Set
 from .stage_1.heuristics import run_heuristics
 from .stage_2.embedding import classify as embedding_classify
 from .stage_3.threshold import check_confidence
-from .stage_4.policy import check_policy, PolicyVerdict
+from .stage_4.policy import check_policy, PolicyVerdict, DEFAULT_LONGTERM_SOURCES
 from .stage_5.llm_judge import judge as llm_judge, JUDGE_BASE_URL, JUDGE_MODEL
 
 logger = logging.getLogger(__name__)
@@ -51,12 +51,31 @@ class ClassificationResult:
     stage2_scores: Dict[str, float] = field(default_factory=dict)
     """Stage 2 probability distribution (populated when passed=True)."""
 
+    capped_from: Optional[str] = None
+    """Tier originally chosen, when a safety cap lowered it (else None)."""
+
+
+def cap_tier(tier: str, metadata: Dict[str, Any], longterm_sources: Optional[Set[str]]):
+    """
+    Trust cap: LONGTERM is only available to trusted sources.
+
+    Returns ``(tier, capped_from, note)``. ``longterm_sources=None`` disables
+    the cap (legacy behaviour, kept for ablation).
+    """
+    if longterm_sources is None or tier != "LONGTERM":
+        return tier, None, ""
+    source = str(metadata.get("source", "")).strip().lower()
+    if source in longterm_sources:
+        return tier, None, ""
+    return "SESSION", "LONGTERM", f"; capped LONGTERM->SESSION (source {source!r} is not trusted for long-term memory)"
+
 def run(
     content: str,
     metadata: Dict[str, Any],
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
     allowed_sources: Optional[Set[str]] = None,
     min_trust_score: float = 0.0,
+    longterm_sources: Optional[Set[str]] = DEFAULT_LONGTERM_SOURCES,
     llm_api_key: Optional[str] = None,
     llm_base_url: str = JUDGE_BASE_URL,
     llm_model: str = JUDGE_MODEL,
@@ -74,6 +93,8 @@ def run(
         confidence_threshold: Minimum Stage 2 top-score to skip Stage 5.
         allowed_sources:      Overrides the Stage 4 default source allowlist.
         min_trust_score:      Stage 4 minimum trust score (0–1).
+        longterm_sources:     Sources allowed to reach LONGTERM; others are capped at
+                              SESSION. ``None`` disables the cap.
         llm_api_key:          OpenAI-compatible key (falls back to OPENROUTER_API_KEY env var).
         llm_base_url:         Chat completions base URL for Stage 5.
         llm_model:            Model name for Stage 5.
@@ -120,17 +141,19 @@ def run(
 
     if policy.verdict == PolicyVerdict.PASS and is_confident:
         
-        logger.info("Pipeline | PASSED Stage 4 + confident → Final Decision tier=%s", top_tier)
+        tier, capped_from, note = cap_tier(top_tier, metadata, longterm_sources)
+        logger.info("Pipeline | PASSED Stage 4 + confident → Final Decision tier=%s", tier)
         return ClassificationResult(
             passed=True,
-            tier=top_tier,
+            tier=tier,
             confidence=scores[top_tier],
             stage_reached=4,
             reasoning=(
                 f"Stage 4 policy gate passed "
-                f"(embedding score={scores[top_tier]:.3f})"
+                f"(embedding score={scores[top_tier]:.3f}){note}"
             ),
             stage2_scores=scores,
+            capped_from=capped_from,
         )
 
     if policy.verdict == PolicyVerdict.AMBIGUOUS:
@@ -150,12 +173,14 @@ def run(
         model=llm_model,
     )
 
+    tier, capped_from, note = cap_tier(tier, metadata, longterm_sources)
     logger.info("Pipeline | Stage 5 Final Decision → tier=%s confidence=%.3f", tier, confidence)
     return ClassificationResult(
         passed=True,
         tier=tier,
         confidence=confidence,
         stage_reached=5,
-        reasoning=reasoning,
+        reasoning=reasoning + note,
         stage2_scores=scores,
+        capped_from=capped_from,
     )
